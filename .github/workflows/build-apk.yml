@@ -1,1 +1,20 @@
-اسمحوا لي بالبحث عن حل بديل لتنفيذ الإعدادات
+name: Build APK
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+      - name: Build APK
+        run: |
+          cd android
+          gradle wrapper --gradle-version 8.x
+          ./gradlew assembleRelease
+          cd ..
+          flutter pub get
+          flutter build apk
