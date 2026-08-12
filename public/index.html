@@ -99,25 +99,112 @@ document.getElementById('projectForm').addEventListener('submit', async function
   e.preventDefault();
 
   const result = document.getElementById('result');
-  result.textContent = '⏳ جاري إرسال المشروع...';
+
+  const appName = document.getElementById('appName').value;
+  const idea = document.getElementById('idea').value;
+  const appType = document.getElementById('appType').value;
+  const design = document.getElementById('design').value;
 
   try {
-    const response = await fetch('/api/analyze', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        appName:document.getElementById('appName').value,
-        idea:document.getElementById('idea').value,
-        appType:document.getElementById('appType').value,
-        design:document.getElementById('design').value
+    result.textContent =
+      '🧠 جاري تحليل فكرة التطبيق...';
+
+    const analyzeResponse = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        appName,
+        idea,
+        appType,
+        design
       })
     });
 
-    const data = await response.json();
-    result.textContent = JSON.stringify(data,null,2);
+    const analyzeData = await analyzeResponse.json();
+
+    if (!analyzeResponse.ok || analyzeData.success === false) {
+      throw new Error(
+        analyzeData.error || 'فشل تحليل المشروع'
+      );
+    }
+
+    result.textContent =
+      '✅ تم تحليل المشروع\n\n' +
+      '🚀 جاري إنشاء APK...\n' +
+      '⏳ سيتم البناء عبر GitHub Actions...';
+
+    const buildResponse = await fetch('/api/build-apk', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        appName,
+        idea,
+        appType,
+        design
+      })
+    });
+
+    const buildData = await buildResponse.json();
+
+    if (!buildResponse.ok || !buildData.success) {
+      throw new Error(
+        buildData.error || 'فشل بناء APK'
+      );
+    }
+
+    result.innerHTML = `
+      <div style="padding:20px;border-radius:14px;background:#10251a;">
+        <h3>🎉 تم إنشاء التطبيق بنجاح</h3>
+
+        <p>✅ تم بناء APK بنجاح</p>
+
+        <p>
+          <a
+            href="${buildData.apkUrl}"
+            download
+            style="
+              display:inline-block;
+              padding:14px 22px;
+              border-radius:10px;
+              background:#22c55e;
+              color:white;
+              text-decoration:none;
+              font-weight:bold;
+            "
+          >
+            📱 تحميل APK
+          </a>
+        </p>
+
+        <p>
+          <a
+            href="${buildData.workflowUrl}"
+            target="_blank"
+            style="color:#60a5fa;"
+          >
+            🔧 مشاهدة Build على GitHub
+          </a>
+        </p>
+
+        <small>
+          Run ID: ${buildData.runId}
+        </small>
+      </div>
+    `;
 
   } catch(error) {
-    result.textContent = '❌ تعذر الاتصال بالخادم';
+
+    result.innerHTML = `
+      <div style="padding:18px;border-radius:12px;background:#351616;">
+        ❌ <strong>حدث خطأ</strong>
+        <br><br>
+        ${error.message}
+      </div>
+    `;
   }
 });
 </script>

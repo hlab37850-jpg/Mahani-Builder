@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const { createFlutterBase, safeName } = require('./generator');
 
 const app = express();
@@ -284,3 +285,96 @@ console.log('[ANALYZE] بعد response.text()');
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Mahani Builder AI running on port ${PORT}`);
 });
+
+app.post('/api/build-apk', async (req, res) => {
+  try {
+    require('dotenv').config();
+
+    const {
+      buildLatestApk
+    } = require('./github-actions');
+
+    const owner = process.env.GITHUB_OWNER;
+    const repo = process.env.GITHUB_REPO;
+    const token = process.env.GITHUB_TOKEN;
+
+    if (!owner || !repo || !token) {
+      return res.status(500).json({
+        success: false,
+        error: 'GitHub configuration is missing'
+      });
+    }
+
+    const outputDir = path.join(
+      __dirname,
+      'projects',
+      'apk-output'
+    );
+
+    console.log('[MAHANI] Starting APK build...');
+
+    const result = await buildLatestApk(
+      owner,
+      repo,
+      token,
+      outputDir
+    );
+
+    const apkUrl =
+      `/api/download-apk?file=${encodeURIComponent(result.apkPath)}`;
+
+    console.log('[MAHANI] APK ready:', result.apkPath);
+
+    res.json({
+      success: true,
+      message: 'APK built successfully',
+      runId: result.runId,
+      workflowUrl: result.workflowUrl,
+      artifactId: result.artifactId,
+      apkPath: result.apkPath,
+      apkUrl
+    });
+
+  } catch (error) {
+    console.error('[MAHANI] APK BUILD ERROR:', error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/download-apk', (req, res) => {
+  try {
+    const requested = req.query.file;
+
+    if (!requested) {
+      return res.status(400).send('APK file is required');
+    }
+
+    const resolved = path.resolve(requested);
+    const allowedDir = path.resolve(
+      __dirname,
+      'projects',
+      'apk-output'
+    );
+
+    if (
+      !resolved.startsWith(allowedDir + path.sep) ||
+      !fs.existsSync(resolved)
+    ) {
+      return res.status(404).send('APK not found');
+    }
+
+    res.download(
+      resolved,
+      'mahani-app.apk'
+    );
+
+  } catch (error) {
+    console.error('[MAHANI] APK DOWNLOAD ERROR:', error);
+    res.status(500).send('Download failed');
+  }
+});
+
