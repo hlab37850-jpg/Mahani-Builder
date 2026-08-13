@@ -225,12 +225,30 @@ console.log('[ANALYZE] بعد response.text()');
       });
     }
 
-    const content = data?.choices?.[0]?.message?.content;
+    const message = data?.choices?.[0]?.message;
+    const content = message?.content;
+
+    console.log('[ANALYZE] message keys:', message ? Object.keys(message) : []);
+    console.log('[ANALYZE] content type:', typeof content);
+    console.log('[ANALYZE] content length:', content ? String(content).length : 0);
 
     if (!content) {
+      console.error('[ANALYZE] لا يوجد message.content');
+      console.error(
+        '[ANALYZE] choices[0]:',
+        JSON.stringify(data?.choices?.[0], null, 2).slice(0, 12000)
+      );
+
       return res.status(502).json({
         success: false,
-        error: 'النموذج لم يعط نتيجة'
+        error: 'النموذج لم يعط message.content',
+        responseShape: {
+          hasChoices: Array.isArray(data?.choices),
+          choicesCount: Array.isArray(data?.choices)
+            ? data.choices.length
+            : 0,
+          messageKeys: message ? Object.keys(message) : []
+        }
       });
     }
 
