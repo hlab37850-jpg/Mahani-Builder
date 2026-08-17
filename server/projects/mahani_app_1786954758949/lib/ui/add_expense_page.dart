@@ -101,20 +101,20 @@ class _AddExpensePageState extends State<AddExpensePage> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _category,
+              initialValue: _category,
               decoration: const InputDecoration(
                 labelText: 'التصنيف',
                 prefixIcon: Icon(Icons.category),
                 border: OutlineInputBorder(),
               ),
-              items: _categories
-                  .map(
-                    (item) => DropdownMenuItem(
-                      value: item,
-                      child: Text(item),
-                    ),
-                  )
-                  .toList(),
+                items: _categories
+                    .map<DropdownMenuItem<String>>(
+                      (item) => DropdownMenuItem<String>(
+                        value: item,
+                        child: Text(item),
+                      ),
+                    )
+                    .toList(),
               onChanged: (value) {
                 if (value != null) {
                   setState(() => _category = value);

@@ -117,7 +117,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${_total.toStringAsFixed(2)}',
+                    _total.toStringAsFixed(2),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 32,
