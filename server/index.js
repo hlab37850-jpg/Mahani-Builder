@@ -4,7 +4,9 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { createFlutterBase, safeName } = require('./generator');
+
+const { buildProject, safeProjectName, MODEL } = require('./professional-engine');
+const githubActions = require('./github-actions');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,13 +20,134 @@ app.get('/api/health', (req, res) => {
     success: true,
     name: 'Mahani Builder AI',
     status: 'online',
-    ai: 'cohere/north-mini-code:free'
+    engine: 'professional',
+    model: MODEL
   });
 });
 
+
+function normalizeResumeText(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function findResumableProject(appName, idea, appType, design) {
+  const projectsRoot = path.join(__dirname, 'projects');
+
+  if (!fs.existsSync(projectsRoot)) {
+    return null;
+  }
+
+  const target = {
+    appName: normalizeResumeText(appName),
+    description: normalizeResumeText(idea),
+    appType: normalizeResumeText(appType || 'تطبيق عام'),
+    design: normalizeResumeText(
+      design || 'تصميم احترافي حديث، عربي RTL'
+    )
+  };
+
+  const candidates = [];
+
+  for (const name of fs.readdirSync(projectsRoot)) {
+    const projectRoot = path.join(projectsRoot, name);
+    const checkpointPath = path.join(
+      projectRoot,
+      '.mahani-checkpoint.json'
+    );
+
+    if (!fs.existsSync(checkpointPath)) {
+      continue;
+    }
+
+    try {
+      const checkpoint = JSON.parse(
+        fs.readFileSync(checkpointPath, 'utf8')
+      );
+
+      if (
+        !checkpoint ||
+        checkpoint.version !== 2 ||
+        !checkpoint.projectName ||
+        !Array.isArray(checkpoint.completedStages) ||
+        checkpoint.completedStages.length === 0 ||
+        checkpoint.completedStages.length >= 4
+      ) {
+        continue;
+      }
+
+      const sameApp =
+        normalizeResumeText(checkpoint.appName) ===
+        target.appName;
+
+      const sameDescription =
+        normalizeResumeText(checkpoint.description) ===
+        target.description;
+
+      const sameAppType =
+        normalizeResumeText(checkpoint.appType) ===
+        target.appType;
+
+      const sameDesign =
+        normalizeResumeText(checkpoint.design) ===
+        target.design;
+
+      if (
+        sameApp &&
+        sameDescription &&
+        sameAppType &&
+        sameDesign
+      ) {
+        candidates.push({
+          projectName: checkpoint.projectName,
+          completedStages: checkpoint.completedStages,
+          mtime: fs.statSync(checkpointPath).mtimeMs
+        });
+      }
+    } catch (error) {
+      console.log(
+        '[CHECKPOINT] تجاهل checkpoint غير صالح: ' +
+        checkpointPath
+      );
+    }
+  }
+
+  if (!candidates.length) {
+    console.log(
+      '[CHECKPOINT] لا يوجد مشروع مطابق لهذا الطلب'
+    );
+    return null;
+  }
+
+  candidates.sort((a, b) => b.mtime - a.mtime);
+
+  const selected = candidates[0];
+
+  console.log(
+    '[CHECKPOINT] تم العثور على مشروع مطابق: ' +
+    selected.projectName
+  );
+
+  console.log(
+    '[CHECKPOINT] المراحل المكتملة: ' +
+    selected.completedStages.join(', ')
+  );
+
+  return selected.projectName;
+}
+
 app.post('/api/analyze', async (req, res) => {
+  const startedAt = Date.now();
+
   try {
-    const { appName, idea, appType, design } = req.body;
+    const {
+      appName,
+      idea,
+      appType,
+      design
+    } = req.body || {};
 
     if (!appName || !idea) {
       return res.status(400).json({
@@ -38,434 +161,194 @@ app.post('/api/analyze', async (req, res) => {
     if (!apiKey) {
       return res.status(500).json({
         success: false,
-        error: 'OPENROUTER_API_KEY غير موجود'
+        error: 'OPENROUTER_API_KEY غير موجود في .env'
       });
     }
 
-    const prompt = `
-أنت مهندس تطبيقات خبير داخل منصة Mahani Builder AI.
-
-حلل فكرة التطبيق التالية بدقة.
-لا تخترع وظائف غير مطلوبة.
-أعد JSON صالحًا فقط.
-لا تستخدم Markdown.
-لا تضع أي نص خارج JSON.
-
-مهم جدًا:
-أنت لا تبني نموذجًا أوليًا أو Demo.
-أنت تبني تطبيق Android حقيقي قابل للاستخدام Production-oriented.
-
-ممنوع إنشاء:
-- بيانات وهمية أو ثابتة داخل التطبيق.
-- Future.delayed لمحاكاة وظائف حقيقية.
-- خدمات ترجع نصوصًا ثابتة.
-- شاشات شكلية بدون CRUD.
-- TODO أو placeholder أو example.
-- وصف وظيفة بدل تنفيذها.
-
-يجب أن يكون التطبيق قابلًا للتشغيل فعليًا بعد flutter pub get.
-
-قاعدة البيانات:
-- استخدم SQLite عبر sqflite.
-- أنشئ DatabaseService حقيقية.
-- أنشئ الجداول اللازمة.
-- استخدم عمليات إنشاء وقراءة وتعديل وأرشفة وحذف حقيقية.
-- لا تضع بيانات العملاء أو الأصناف داخل الكود كبيانات افتراضية.
-
-العملاء:
-- الاسم.
-- الهاتف.
-- العنوان.
-- الملاحظات.
-- العملة.
-- الرصيد الحالي.
-- التمييز بين الرصيد المدين والدائن.
-- البحث.
-- التعديل.
-- الأرشفة.
-- الحذف.
-
-الأصناف:
-- الاسم الكامل بدون تعديل أو حذف أي حرف أو رقم أو رمز.
-- التصنيف.
-- الوحدة.
-- الكمية.
-- الحد الأدنى.
-- حد إعادة الطلب.
-- تنبيهات انخفاض المخزون.
-
-الاستحقاقات:
-- التاريخ.
-- الوقت.
-- التذكير قبل الموعد.
-- التذكير في الموعد.
-- التذكيرات اللاحقة.
-- تخزين الاستحقاقات في SQLite.
-
-الاستيراد:
-يجب إنشاء بنية حقيقية قابلة للتوسع لـ:
-- CSV.
-- Excel XLSX.
-- PDF.
-- SQLite/DB.
-- النسخ الاحتياطية.
-
-يجب أن تمر عملية الاستيراد بالمراحل:
-قراءة الملف ← التعرف على النوع ← تحليل البيانات ← تنظيف Header/Footer/الإجماليات ← استخراج العملاء والأصناف والمخزون ← التحقق ← منع التكرار ← شاشة مراجعة ← نسخة احتياطية ← استيراد ← تقرير.
-
-الذكاء الاصطناعي:
-- أنشئ AIService حقيقية قابلة للربط بمزود API.
-- لا تستخدم ردودًا ثابتة.
-- لا تستخدم Future.delayed لمحاكاة الذكاء الاصطناعي.
-- اجعل مفتاح API خارج التطبيق قدر الإمكان.
-- صمم الخدمة بحيث يمكن استبدال المزود بسهولة.
-
-النسخ الاحتياطي:
-- إنشاء Backup.
-- استعادة Backup.
-- حفظ سجل النسخ.
-- إمكانية التراجع عن آخر عملية استيراد.
-
-التقارير:
-- العملاء.
-- الأرصدة.
-- المخزون.
-- الأصناف الناقصة.
-- الاستحقاقات.
-- الاستيراد.
-- PDF وExcel عندما تكون الحزم مناسبة لذلك.
-
-المعمارية:
-استخدم فصلًا واضحًا:
-core/
-domain/
-application/
-infrastructure/
-presentation/
-
-ويجب أن تكون imports صحيحة ومتوافقة.
-
-مهم:
-لا تحاول كتابة كل شيء في ملف واحد.
-أنشئ ملفات Dart متعددة ومترابطة.
-كل ملف يجب أن يحتوي على كود حقيقي كامل.
-يجب أن تكون جميع imports موجودة.
-لا تشير إلى ملف غير موجود.
-لا تستورد package غير موجودة في pubspec.yaml.
-
-الأولوية:
-صحة البناء والترابط بين الملفات أهم من كثرة الميزات.
-إذا كان تنفيذ ميزة كاملة غير ممكن ضمن الاستجابة، أنشئ أساسًا حقيقيًا قابلًا للتوسع بدل إنشاء وظيفة وهمية.
-
-اسم التطبيق:
-${appName}
-
-نوع التطبيق:
-${appType || 'تطبيق عام'}
-
-فكرة التطبيق:
-${idea}
-
-التصميم المطلوب:
-${design || 'تصميم حديث عربي RTL'}
-
-أعد بهذا الشكل:
-
-{
-  "appName": "",
-  "description": "",
-  "platform": "android",
-  "features": [],
-  "screens": [],
-  "data": {},
-  "design": {
-    "style": "",
-    "direction": "rtl",
-    "primaryColor": ""
-  },
-  "files": [
-    {
-      "path": "lib/main.dart",
-      "purpose": "نقطة دخول التطبيق",
-      "content": "كود Dart كامل وصالح لهذا الملف"
-    },
-    {
-      "path": "lib/screens/home_screen.dart",
-      "purpose": "الشاشة الرئيسية",
-      "content": "كود Dart كامل وصالح لهذه الشاشة"
-    }
-  ]
-}
-
-قواعد مهمة للـ files:
-- أعد جميع ملفات Dart الضرورية لتنفيذ التطبيق فعليًا.
-- كل ملف يجب أن يحتوي على path و purpose و content.
-- content يجب أن يكون كود Dart كاملًا وقابلًا للترجمة، وليس وصفًا أو مثالًا.
-- يجب أن تكون الملفات مترابطة وتستخدم imports صحيحة.
-- لا تستخدم placeholders مثل TODO أو "ضع الكود هنا".
-- لا تنشئ ملفات غير ضرورية.
-- احترم اللغة العربية واتجاه RTL.
-- اجعل التطبيق قابلًا للبناء باستخدام Flutter stable.
-- لا تضع Markdown داخل content.
-- لا تضع \`\`\` داخل content.
-
-`;
-
-    console.log('[ANALYZE] قبل طلب OpenRouter');
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000);
-
-    let response;
-
-    try {
-      console.log('[ANALYZE] إرسال الطلب إلى OpenRouter...');
-      response = await fetch(
-        'https://openrouter.ai/api/v1/chat/completions',
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'http://127.0.0.1:3000',
-            'X-Title': 'Mahani Builder AI'
-          },
-          body: JSON.stringify({
-            model: 'cohere/north-mini-code:free',
-            messages: [
-              {
-                role: 'system',
-                content:
-                  'You are an expert Flutter application engineer. Return valid JSON only. Never return Markdown. Generate the actual complete Flutter source code for every required file. Every file object MUST contain path, purpose, and complete content. Do not use placeholders, TODOs, descriptions instead of code, or fixed templates. File paths must be relative, safe, and inside lib/. Keep the project minimal but fully functional. All files must compile together.'
-              },
-              {
-                role: 'user',
-                content: prompt
-              }
-            ],
-            temperature: 0.1,
-            max_tokens: 48000,
-            reasoning: {
-              effort: 'low',
-              exclude: true
-            },
-            response_format: {
-              type: 'json_object'
-            }
-          }),
-          signal: controller.signal
-        }
-      );
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        return res.status(504).json({
-          success: false,
-          error: 'انتهت مهلة توليد المشروع من النموذج بعد 120 ثانية'
-        });
-      }
-
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-      console.log('[ANALYZE] انتهى طلب OpenRouter');
-    }
-
-    console.log('[ANALYZE] استلمنا HTTP:', response.status);
-
-    console.log('[ANALYZE] بدء قراءة OpenRouter stream...');
-
-let responseText = '';
-
-if (!response.body) {
-  throw new Error('OPENROUTER_RESPONSE_BODY_UNAVAILABLE');
-}
-
-const reader = response.body.getReader();
-const decoder = new TextDecoder();
-
-while (true) {
-  const result = await reader.read();
-
-  if (result.done) {
-    break;
-  }
-
-  if (result.value) {
-    responseText += decoder.decode(result.value, { stream: true });
-    console.log(
-      '[ANALYZE] استلمنا chunk:',
-      result.value.length,
-      'bytes'
-    );
-  }
-}
-
-responseText += decoder.decode();
-
-console.log('[ANALYZE] انتهت قراءة OpenRouter stream');
-
-console.log('[ANALYZE] بعد response.text()');
-
-    console.log(
-      '[ANALYZE] حجم استجابة OpenRouter:',
-      responseText.length,
-      'bytes'
+    let projectName = findResumableProject(
+      appName,
+      idea,
+      appType,
+      design
     );
 
-    let data;
-
-    try {
-      data = JSON.parse(responseText);
-      console.log('[ANALYZE] تم تحليل JSON من OpenRouter');
-    } catch (error) {
-      console.error('[ANALYZE] فشل تحليل JSON:', error.message);
-      console.error('[ANALYZE] بداية الاستجابة:', responseText.slice(0, 1000));
-
-      return res.status(502).json({
-        success: false,
-        error: 'استجابة النموذج ليست JSON صالحًا',
-        details: error.message
-      });
-    }
-
-    if (!response.ok) {
-      return res.status(502).json({
-        success: false,
-        error: 'فشل الاتصال بالنموذج',
-        details: data
-      });
-    }
-
-    const message = data?.choices?.[0]?.message;
-    const content = message?.content;
-
-    console.log('[ANALYZE] message keys:', message ? Object.keys(message) : []);
-    console.log('[ANALYZE] content type:', typeof content);
-    console.log('[ANALYZE] content length:', content ? String(content).length : 0);
-
-    if (!content) {
-      console.error('[ANALYZE] لا يوجد message.content');
-      console.error(
-        '[ANALYZE] choices[0]:',
-        JSON.stringify(data?.choices?.[0], null, 2).slice(0, 12000)
+    if (projectName) {
+      console.log(
+        '[MAHANI] استئناف المشروع المتوقف: ' +
+        projectName
       );
+    } else {
+      projectName = safeProjectName(appName);
 
-      return res.status(502).json({
-        success: false,
-        error: 'النموذج لم يعط message.content',
-        responseShape: {
-          hasChoices: Array.isArray(data?.choices),
-          choicesCount: Array.isArray(data?.choices)
-            ? data.choices.length
-            : 0,
-          messageKeys: message ? Object.keys(message) : []
-        }
-      });
+      console.log(
+        '[MAHANI] لا يوجد مشروع متوقف — إنشاء مشروع جديد: ' +
+        projectName
+      );
     }
 
-    let plan;
-
-    try {
-      plan = JSON.parse(content.trim());
-    } catch {
-      const cleaned = content
-        .replace(/^```json\s*/i, '')
-        .replace(/^```\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
-
-      try {
-        plan = JSON.parse(cleaned);
-      } catch {
-        return res.status(502).json({
-          success: false,
-          error: 'النموذج أعاد JSON غير صالح',
-          raw: content
-        });
+    const plan = {
+      appName: String(appName).trim(),
+      description: String(idea).trim(),
+      platform: 'android',
+      appType: appType || 'تطبيق عام',
+      design: design || 'تصميم احترافي حديث، عربي RTL',
+      requirements: {
+        production: true,
+        realData: true,
+        offlineFirst: true,
+        sqlite: true,
+        arabicRTL: true,
+        extensibleArchitecture: true
       }
+    };
+
+    console.log('');
+    console.log('==========================================');
+    console.log('[MAHANI] PROFESSIONAL BUILD START');
+    console.log('==========================================');
+    console.log('[MAHANI] App:', plan.appName);
+    console.log('[MAHANI] Project:', projectName);
+    console.log('[MAHANI] Model:', MODEL);
+
+    const result = await buildProject(
+      apiKey,
+      projectName,
+      plan
+    );
+
+    console.log('');
+    console.log('==========================================');
+    console.log('[MAHANI] GITHUB APK BUILD START');
+    console.log('==========================================');
+
+    const githubToken = process.env.GITHUB_TOKEN;
+    const githubOwner = process.env.GITHUB_OWNER;
+
+    if (!githubToken || !githubOwner) {
+      throw new Error('GITHUB_TOKEN أو GITHUB_OWNER غير موجود في .env');
     }
 
-    console.log('[ANALYZE] بدء إنشاء ملفات المشروع...');
-    const projectPath = createFlutterBase(appName, plan);
-    console.log('[ANALYZE] انتهى إنشاء المشروع:', projectPath);
-    res.json({
+    const githubRepo = githubActions.normalizeRepoName
+      ? githubActions.normalizeRepoName(projectName)
+      : String(projectName)
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9._-]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 90);
+
+    const githubOutputDir = path.join(
+      __dirname,
+      'projects',
+      projectName,
+      'github-build'
+    );
+
+    fs.mkdirSync(githubOutputDir, { recursive: true });
+
+    const githubResult = await githubActions.buildProject(
+      githubOwner,
+      githubRepo,
+      githubToken,
+      result.projectRoot,
+      githubOutputDir
+    );
+
+    console.log('[MAHANI] GITHUB APK BUILD COMPLETE');
+    console.log('[MAHANI] APK:', githubResult.apkPath);
+    console.log('[MAHANI] Size:', githubResult.apkSize);
+
+    const elapsed = Math.round(
+      (Date.now() - startedAt) / 1000
+    );
+
+    console.log('[MAHANI] PROFESSIONAL BUILD COMPLETE');
+    console.log('[MAHANI] Files:', result.files.length);
+    console.log('[MAHANI] Time:', elapsed, 'seconds');
+
+    return res.json({
       success: true,
-      message: 'تم تحليل التطبيق بنجاح',
-      model: 'cohere/north-mini-code:free',
-      plan,
+      message: 'تم إنشاء المشروع عبر المحرك الاحترافي',
+      engine: 'professional',
+      model: MODEL,
+      durationSeconds: elapsed,
       project: {
-        name: plan.appName || appName,
-        folder: safeName(appName),
-        path: projectPath
+        name: plan.appName,
+        folder: projectName,
+        path: result.projectRoot
       },
+      github: {
+        repository: githubResult.repository,
+        runId: githubResult.runId,
+        workflowUrl: githubResult.workflowUrl,
+        artifactId: githubResult.artifactId,
+        artifactName: githubResult.artifactName,
+        apkPath: githubResult.apkPath,
+        apkSize: githubResult.apkSize
+      },
+      stages: result.stages,
+      files: result.files
     });
 
   } catch (error) {
+    console.error('');
+    console.error('==========================================');
+    console.error('[MAHANI] PROFESSIONAL BUILD ERROR');
+    console.error('==========================================');
     console.error(error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: 'حدث خطأ داخل الخادم',
+      error: 'فشل إنشاء المشروع',
       details: error.message
     });
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Mahani Builder AI running on port ${PORT}`);
-});
-
-app.post('/api/build-apk', async (req, res) => {
+app.get('/api/project/:name', (req, res) => {
   try {
-    require('dotenv').config();
+    const projectName = safeProjectName(req.params.name);
 
-    const {
-      buildLatestApk
-    } = require('./github-actions');
+    const projectRoot = path.join(
+      __dirname,
+      'projects',
+      projectName
+    );
 
-    const owner = process.env.GITHUB_OWNER;
-    const repo = process.env.GITHUB_REPO;
-    const token = process.env.GITHUB_TOKEN;
-
-    if (!owner || !repo || !token) {
-      return res.status(500).json({
+    if (!fs.existsSync(projectRoot)) {
+      return res.status(404).json({
         success: false,
-        error: 'GitHub configuration is missing'
+        error: 'المشروع غير موجود'
       });
     }
 
-    const outputDir = path.join(
-      __dirname,
-      'projects',
-      'apk-output'
-    );
+    const files = [];
 
-    console.log('[MAHANI] Starting APK build...');
+    function walk(dir) {
+      for (const entry of fs.readdirSync(dir, {
+        withFileTypes: true
+      })) {
+        const full = path.join(dir, entry.name);
 
-    const result = await buildLatestApk(
-      owner,
-      repo,
-      token,
-      outputDir
-    );
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile()) {
+          files.push(
+            path.relative(projectRoot, full)
+          );
+        }
+      }
+    }
 
-    const apkUrl =
-      `/api/download-apk?file=${encodeURIComponent(result.apkPath)}`;
-
-    console.log('[MAHANI] APK ready:', result.apkPath);
+    walk(projectRoot);
 
     res.json({
       success: true,
-      message: 'APK built successfully',
-      runId: result.runId,
-      workflowUrl: result.workflowUrl,
-      artifactId: result.artifactId,
-      apkPath: result.apkPath,
-      apkUrl
+      project: projectName,
+      files: files.sort()
     });
 
   } catch (error) {
-    console.error('[MAHANI] APK BUILD ERROR:', error);
-
     res.status(500).json({
       success: false,
       error: error.message
@@ -473,36 +356,12 @@ app.post('/api/build-apk', async (req, res) => {
   }
 });
 
-app.get('/api/download-apk', (req, res) => {
-  try {
-    const requested = req.query.file;
-
-    if (!requested) {
-      return res.status(400).send('APK file is required');
-    }
-
-    const resolved = path.resolve(requested);
-    const allowedDir = path.resolve(
-      __dirname,
-      'projects',
-      'apk-output'
-    );
-
-    if (
-      !resolved.startsWith(allowedDir + path.sep) ||
-      !fs.existsSync(resolved)
-    ) {
-      return res.status(404).send('APK not found');
-    }
-
-    res.download(
-      resolved,
-      'mahani-app.apk'
-    );
-
-  } catch (error) {
-    console.error('[MAHANI] APK DOWNLOAD ERROR:', error);
-    res.status(500).send('Download failed');
-  }
+app.listen(PORT, '0.0.0.0', () => {
+  console.log('');
+  console.log('==========================================');
+  console.log('Mahani Builder AI');
+  console.log('Professional Engine');
+  console.log(`Running on port ${PORT}`);
+  console.log(`Model: ${MODEL}`);
+  console.log('==========================================');
 });
-
