@@ -1,74 +1,66 @@
-name: Mahani Builder - Android APK
+name: Build Mahani Android APK
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-
-permissions:
-  contents: read
+      - master
 
 jobs:
-  build:
+  build-apk:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Java 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.7'
           channel: stable
           cache: true
 
-      - name: Verify Flutter
-        run: |
-          flutter --version
-          dart --version
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Verify generated Flutter project
-        working-directory: server/projects/android_fix_test2
+      - name: Install Android SDK 36
         run: |
-          test -f pubspec.yaml
-          test -d lib
-          test -d android
-          echo "Flutter project detected"
-          echo "Dart files:"
-          find lib -type f -name "*.dart" | sort
+          yes | sdkmanager --licenses || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Flutter Doctor
+        run: flutter doctor -v
 
       - name: Get dependencies
-        working-directory: server/projects/android_fix_test2
+        working-directory: server/projects/mahani_app_1786954758949
         run: flutter pub get
 
-      - name: Analyze project
-        working-directory: server/projects/android_fix_test2
+      - name: Analyze
+        working-directory: server/projects/mahani_app_1786954758949
         run: flutter analyze
 
-      - name: Build release APK
-        working-directory: server/projects/android_fix_test2
+      - name: Build Release APK
+        working-directory: server/projects/mahani_app_1786954758949
         run: flutter build apk --release
 
-      - name: Verify APK
-        working-directory: server/projects/android_fix_test2
+      - name: Show APK
+        working-directory: server/projects/mahani_app_1786954758949
         run: |
-          APK="build/app/outputs/flutter-apk/app-release.apk"
-          test -f "$APK"
-          echo "APK CREATED SUCCESSFULLY"
-          ls -lh "$APK"
+          ls -lh build/app/outputs/flutter-apk/
+          sha256sum build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: mahani_app-apk
-          path: server/projects/android_fix_test2/build/app/outputs/flutter-apk/app-release.apk
+          name: mahani-app-release
+          path: server/projects/mahani_app_1786954758949/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
