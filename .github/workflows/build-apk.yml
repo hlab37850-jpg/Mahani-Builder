@@ -36,6 +36,17 @@ jobs:
           yes | sdkmanager --licenses || true
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
+      - name: Verify Gradle Wrapper
+        working-directory: server/projects/mahani_app_1786954758949
+        run: |
+          echo "=== GRADLE WRAPPER ==="
+          pwd
+          ls -la android/gradlew
+          file android/gradlew
+          test -f android/gradlew
+          test -x android/gradlew
+          ./android/gradlew --version
+
       - name: Flutter Doctor
         run: flutter doctor -v
 
