@@ -216,47 +216,18 @@ app.post('/api/analyze', async (req, res) => {
       plan
     );
 
-    console.log('');
-    console.log('==========================================');
-    console.log('[MAHANI] GITHUB APK BUILD START');
-    console.log('==========================================');
+    const githubResult = result.github || {
+      apkPath: result.apkPath || null,
+      apkSize: null,
+      repository: null,
+      runId: null,
+      workflowUrl: null,
+      artifactId: null,
+      artifactName: null
+    };
 
-    const githubToken = process.env.GITHUB_TOKEN;
-    const githubOwner = process.env.GITHUB_OWNER;
-
-    if (!githubToken || !githubOwner) {
-      throw new Error('GITHUB_TOKEN أو GITHUB_OWNER غير موجود في .env');
-    }
-
-    const githubRepo = githubActions.normalizeRepoName
-      ? githubActions.normalizeRepoName(projectName)
-      : String(projectName)
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9._-]+/g, '-')
-          .replace(/^-+|-+$/g, '')
-          .slice(0, 90);
-
-    const githubOutputDir = path.join(
-      __dirname,
-      'projects',
-      projectName,
-      'github-build'
-    );
-
-    fs.mkdirSync(githubOutputDir, { recursive: true });
-
-    const githubResult = await githubActions.buildProject(
-      githubOwner,
-      githubRepo,
-      githubToken,
-      result.projectRoot,
-      githubOutputDir
-    );
-
-    console.log('[MAHANI] GITHUB APK BUILD COMPLETE');
+    console.log('[MAHANI] GITHUB APK BUILD ALREADY COMPLETED BY ENGINE');
     console.log('[MAHANI] APK:', githubResult.apkPath);
-    console.log('[MAHANI] Size:', githubResult.apkSize);
 
     const elapsed = Math.round(
       (Date.now() - startedAt) / 1000
@@ -286,6 +257,9 @@ app.post('/api/analyze', async (req, res) => {
         apkPath: githubResult.apkPath,
         apkSize: githubResult.apkSize
       },
+      apkUrl: githubResult.apkPath || null,
+      workflowUrl: githubResult.workflowUrl || null,
+      runId: githubResult.runId || null,
       stages: result.stages,
       files: result.files
     });

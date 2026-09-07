@@ -1,0 +1,527 @@
+const fs = require('fs');
+const path = require('path');
+
+function safeProjectName(name) {
+  const raw = String(name || '').trim().toLowerCase();
+
+  let safe = raw
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_');
+
+  if (!safe) {
+    safe = 'mahani_app_' + Date.now();
+  }
+
+  return safe;
+}
+
+function projectRoot(projectName) {
+  return path.join(
+    __dirname,
+    'projects',
+    safeProjectName(projectName)
+  );
+}
+
+function ensureProject(projectName) {
+  const root = projectRoot(projectName);
+
+  fs.mkdirSync(root, { recursive: true });
+  fs.mkdirSync(path.join(root, 'lib'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.github', 'workflows'), {
+    recursive: true
+  });
+
+  return root;
+}
+
+function safeFilePath(filePath) {
+  const value = String(filePath || '').trim();
+
+  if (!value) return null;
+  if (value.includes('..')) return null;
+  if (value.includes('\\')) return null;
+  if (!value.startsWith('lib/')) return null;
+  if (!value.endsWith('.dart')) return null;
+
+  return value;
+}
+
+
+function validateFilesPlan(files) {
+  const input = Array.isArray(files) ? files : [];
+  const errors = [];
+  const seenPaths = new Map();
+  const seenBasenames = new Map();
+
+  for (const file of input) {
+    if (!file || typeof file !== 'object') continue;
+
+    const filePath = safeFilePath(file.path);
+
+    if (!filePath) {
+      errors.push({
+        type: 'invalid_path',
+        path: file.path || null
+      });
+      continue;
+    }
+
+    if (!String(file.content || '').trim()) {
+      errors.push({
+        type: 'empty_content',
+        path: filePath
+      });
+      continue;
+    }
+
+    if (seenPaths.has(filePath)) {
+      errors.push({
+        type: 'duplicate_path',
+        path: filePath,
+        previous: seenPaths.get(filePath)
+      });
+    } else {
+      seenPaths.set(filePath, filePath);
+    }
+
+    const basename = path.basename(filePath).toLowerCase();
+
+    if (!seenBasenames.has(basename)) {
+      seenBasenames.set(basename, []);
+    }
+
+    seenBasenames.get(basename).push(filePath);
+  }
+
+  for (const [basename, paths] of seenBasenames.entries()) {
+    if (paths.length < 2) continue;
+
+    const normalized = paths.map(p => p.toLowerCase());
+
+    const conflictingArchitecture =
+      normalized.some(p => p.includes('/core/models/')) &&
+      normalized.some(p => p.includes('/models/'));
+
+    const conflictingScreens =
+      normalized.some(p => p.includes('/presentation/screens/')) &&
+      normalized.some(p => p.includes('/screens/'));
+
+    if (conflictingArchitecture || conflictingScreens) {
+      errors.push({
+        type: 'conflicting_duplicate_basename',
+        basename,
+        paths
+      });
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+
+function normalizeDartImports(projectName, files) {
+  const input = Array.isArray(files) ? files : [];
+  const packageName = safeProjectName(projectName);
+
+  return input.map(file => {
+    if (!file || typeof file !== 'object') return file;
+
+    const filePath = safeFilePath(file.path);
+    if (!filePath) return file;
+
+    let content = String(file.content || '');
+    if (!content.trim()) return file;
+
+    const regex = /import\s+(['"])([^'"]+)\1\s*;/g;
+
+    content = content.replace(regex, (full, quote, importPath) => {
+      if (
+        importPath.startsWith('dart:') ||
+        importPath.startsWith('package:')
+      ) {
+        return full;
+      }
+
+      if (
+        importPath.endsWith('.dart') &&
+        !importPath.startsWith('./') &&
+        !importPath.startsWith('../') &&
+        !importPath.startsWith('/')
+      ) {
+        const normalized = importPath.replace(/^\/+/, '');
+
+        if (
+          normalized.startsWith('core/') ||
+          normalized.startsWith('domain/') ||
+          normalized.startsWith('application/') ||
+          normalized.startsWith('infrastructure/') ||
+          normalized.startsWith('presentation/') ||
+          normalized.startsWith('screens/') ||
+          normalized.startsWith('services/') ||
+          normalized.startsWith('models/') ||
+          normalized.startsWith('widgets/') ||
+          normalized.startsWith('theme/')
+        ) {
+          return "import " + quote +
+            "package:" + packageName + "/" + normalized +
+            quote + ";";
+        }
+      }
+
+      return full;
+    });
+
+    return {
+      ...file,
+      content
+    };
+  });
+}
+
+function validateRelativeImportsPlan(files) {
+  const input = Array.isArray(files) ? files : [];
+  const errors = [];
+
+  const knownFiles = new Set(
+    input
+      .map(file => safeFilePath(file?.path))
+      .filter(Boolean)
+      .map(filePath => filePath.replace(/\\/g, '/'))
+  );
+
+  for (const file of input) {
+    if (!file || typeof file !== 'object') continue;
+
+    const from = safeFilePath(file.path);
+    if (!from) continue;
+
+    const source = String(file.content || '');
+    if (!source.trim()) continue;
+
+    const regex =
+      /import\s+['"]([^'"]+\.dart)['"]\s*;/g;
+
+    let match;
+
+    while ((match = regex.exec(source))) {
+      const importPath = match[1];
+
+      if (importPath.startsWith('package:')) {
+        continue;
+      }
+
+      if (importPath.startsWith('dart:')) {
+        continue;
+      }
+
+      const parts = from.split('/');
+      parts.pop();
+
+      if (importPath.startsWith('/')) {
+        continue;
+      }
+
+      for (const part of importPath.split('/')) {
+        if (!part || part === '.') continue;
+
+        if (part === '..') {
+          if (parts.length > 1) {
+            parts.pop();
+          }
+          continue;
+        }
+
+        parts.push(part);
+      }
+
+      const resolved = parts.join('/');
+
+      if (!knownFiles.has(resolved)) {
+        errors.push({
+          type: 'missing_relative_import',
+          from,
+          import: importPath,
+          resolved
+        });
+      }
+    }
+  }
+
+  return errors;
+}
+
+function validatePackageImportsPlan(projectName, files) {
+  const input = Array.isArray(files) ? files : [];
+  const errors = [];
+  const projectPackage = safeProjectName(projectName);
+
+  const knownPackages = new Set([
+    'flutter',
+    'flutter_test',
+    'cupertino_icons',
+    'provider',
+    'sqflite',
+    'path',
+    'shared_preferences',
+    'intl',
+    'flutter_local_notifications',
+    'pdf',
+    'printing',
+    'excel',
+    'file_picker',
+    'permission_handler',
+    'path_provider',
+    'http',
+    'uuid',
+    'crypto',
+    projectPackage
+  ]);
+
+  for (const file of input) {
+    if (!file || typeof file !== 'object') continue;
+
+    const filePath = safeFilePath(file.path);
+    if (!filePath) continue;
+
+    const source = String(file.content || '');
+
+    const regex = /import\s+['"]package:([^/]+)\/[^'"]+['"]\s*;/g;
+
+    let match;
+
+    while ((match = regex.exec(source))) {
+      const packageName = match[1];
+
+      if (!knownPackages.has(packageName)) {
+        errors.push({
+          type: 'unknown_package_import',
+          path: filePath,
+          package: packageName
+        });
+      }
+    }
+  }
+
+  return errors;
+}
+
+function writeFiles(projectName, files) {
+  files = normalizeDartImports(projectName, files);
+
+  const validation = validateFilesPlan(files);
+
+  const importErrors = [
+    ...validateRelativeImportsPlan(files),
+    ...validatePackageImportsPlan(projectName, files)
+  ];
+
+  if (!validation.valid || importErrors.length > 0) {
+    const error = new Error('INVALID_FILES_PLAN');
+    error.code = 'INVALID_FILES_PLAN';
+    error.details = [
+      ...validation.errors,
+      ...importErrors
+    ];
+    throw error;
+  }
+
+  const root = ensureProject(projectName);
+
+  let written = 0;
+
+  for (const file of Array.isArray(files) ? files : []) {
+    if (!file || typeof file !== 'object') continue;
+
+    const filePath = safeFilePath(file.path);
+    if (!filePath) continue;
+
+    const content = String(file.content || '');
+    if (!content.trim()) continue;
+
+    const fullPath = path.resolve(root, filePath);
+    const libRoot = path.resolve(root, 'lib');
+
+    if (!fullPath.startsWith(libRoot + path.sep)) {
+      continue;
+    }
+
+    fs.mkdirSync(path.dirname(fullPath), {
+      recursive: true
+    });
+
+    fs.writeFileSync(
+      fullPath,
+      content.endsWith('\n') ? content : content + '\n',
+      'utf8'
+    );
+
+    written++;
+  }
+
+  return {
+    root,
+    written,
+    validation: {
+      files: validation,
+      importErrors
+    }
+  };
+}
+
+function listDartFiles(projectName) {
+  const root = projectRoot(projectName);
+  const libRoot = path.join(root, 'lib');
+
+  if (!fs.existsSync(libRoot)) {
+    return [];
+  }
+
+  const result = [];
+
+  function walk(dir) {
+    for (const entry of fs.readdirSync(dir, {
+      withFileTypes: true
+    })) {
+      const full = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+
+      if (entry.isFile() && entry.name.endsWith('.dart')) {
+        result.push(path.relative(root, full));
+      }
+    }
+  }
+
+  walk(libRoot);
+
+  return result.sort();
+}
+
+function findMissingRelativeImports(projectName) {
+  const root = projectRoot(projectName);
+  const dartFiles = listDartFiles(projectName);
+  const missing = [];
+
+  for (const relativeFile of dartFiles) {
+    const fullFile = path.join(root, relativeFile);
+    const source = fs.readFileSync(fullFile, 'utf8');
+
+    const regex =
+      /import\s+['"](\.{1,2}\/[^'"]+\.dart)['"]\s*;/g;
+
+    let match;
+
+    while ((match = regex.exec(source))) {
+      const target = path.resolve(
+        path.dirname(fullFile),
+        match[1]
+      );
+
+      if (!fs.existsSync(target)) {
+        missing.push({
+          from: relativeFile,
+          import: match[1]
+        });
+      }
+    }
+  }
+
+  return missing;
+}
+
+
+function findDuplicateDartBasenames(projectName) {
+  const files = listDartFiles(projectName);
+  const groups = new Map();
+
+  for (const file of files) {
+    const basename = path.basename(file).toLowerCase();
+
+    if (!groups.has(basename)) {
+      groups.set(basename, []);
+    }
+
+    groups.get(basename).push(file);
+  }
+
+  const duplicates = [];
+
+  for (const [basename, paths] of groups.entries()) {
+    if (paths.length > 1) {
+      duplicates.push({
+        basename,
+        paths
+      });
+    }
+  }
+
+  return duplicates;
+}
+
+function scanForbiddenPatterns(projectName) {
+  const root = projectRoot(projectName);
+  const dartFiles = listDartFiles(projectName);
+
+  const patterns = [
+    /Future\.delayed/g,
+    /\bTODO\b/g,
+    /\bplaceholder\b/gi,
+    /\bexample\b/gi,
+    /تم تحليل البيانات/g,
+    /بيانات وهمية/g
+  ];
+
+  const findings = [];
+
+  for (const relativeFile of dartFiles) {
+    const fullFile = path.join(root, relativeFile);
+    const source = fs.readFileSync(fullFile, 'utf8');
+
+    for (const pattern of patterns) {
+      if (pattern.test(source)) {
+        findings.push({
+          file: relativeFile,
+          pattern: pattern.toString()
+        });
+
+        pattern.lastIndex = 0;
+      }
+    }
+  }
+
+  return findings;
+}
+
+function getProjectReport(projectName) {
+  return {
+    project: safeProjectName(projectName),
+    files: listDartFiles(projectName),
+    missingImports: findMissingRelativeImports(projectName),
+    duplicateFiles: findDuplicateDartBasenames(projectName),
+    forbiddenPatterns: scanForbiddenPatterns(projectName)
+  };
+}
+
+module.exports = {
+  normalizeDartImports,
+  validateFilesPlan,
+  validateRelativeImportsPlan,
+  validatePackageImportsPlan,
+  safeProjectName,
+  projectRoot,
+  ensureProject,
+  writeFiles,
+  listDartFiles,
+  findMissingRelativeImports,
+  findDuplicateDartBasenames,
+  scanForbiddenPatterns,
+  getProjectReport
+};

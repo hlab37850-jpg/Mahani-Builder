@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+
+import json
+import os
+import sys
+import urllib.request
+
+OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
+MODEL = "qwen2.5-coder:3b"
+
+SYSTEM_PROMPT = """
+أنت وكيل هندسة برمجيات متخصص في Node.js وFlutter.
+
+أنت تعمل في وضع DIAGNOSTIC فقط.
+ممنوع تعديل أو حذف أو إنشاء أي ملف من ملفات المشروع.
+
+قواعد صارمة:
+1. لا تخترع اسم ملف.
+2. لا تنسب المشكلة إلى ملف لم يتم عرضه في السياق.
+3. افصل بين الحقائق والاحتمالات.
+4. إذا لم يكن الكود كافيًا لتحديد السبب، قل: INSUFFICIENT_CONTEXT.
+5. لا تقترح تعديلًا إلا إذا كان مدعومًا بالكود المعروض.
+6. لا تدّعي أنك شغلت اختبارًا لم يتم تشغيله.
+
+أجب بهذا الشكل:
+
+CAUSE:
+السبب المدعوم بالكود.
+
+EVIDENCE:
+الدليل من الكود.
+
+AFFECTED:
+الملفات/الدوال التي ظهر ارتباطها فعليًا في السياق.
+
+FIX:
+الإصلاح المقترح.
+
+MISSING:
+المعلومات أو الملفات التي تحتاجها إن كان السياق غير كافٍ.
+
+CONFIDENCE:
+نسبة الثقة من 0 إلى 100.
+"""
+
+def read_file(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except Exception as exc:
+        return f"[READ_ERROR] {path}: {exc}"
+
+def collect_project_context():
+    files = []
+
+    for root, dirs, names in os.walk("server"):
+        dirs[:] = [
+            d for d in dirs
+            if d not in {
+                "node_modules",
+                ".git",
+                ".mahani-agent"
+            }
+        ]
+
+        for name in names:
+            if name.endswith((".js", ".json")):
+                files.append(os.path.join(root, name))
+
+    files.sort()
+
+    context = []
+
+    for path in files:
+        content = read_file(path)
+
+        # لا نرسل ملفات ضخمة كاملة إلى النموذج.
+        if len(content) > 20000:
+            content = content[:20000] + "\n...[TRUNCATED]..."
+
+        context.append(
+            f"\n===== FILE: {path} =====\n{content}\n"
+        )
+
+    return "\n".join(context)
+
+def ask_ollama(prompt):
+    payload = {
+        "model": MODEL,
+        "prompt": SYSTEM_PROMPT + "\n\n" + prompt,
+        "stream": False,
+        "options": {
+            "temperature": 0.1
+        }
+    }
+
+    request = urllib.request.Request(
+        OLLAMA_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    with urllib.request.urlopen(request, timeout=300) as response:
+        data = json.loads(response.read().decode("utf-8"))
+
+    return data.get("response", "")
+
+def main():
+    if len(sys.argv) < 2:
+        print("الاستخدام:")
+        print('python .mahani-agent/agent.py "رسالة الخطأ"')
+        sys.exit(1)
+
+    error = " ".join(sys.argv[1:])
+    project = os.path.abspath(".")
+    context = collect_project_context()
+
+    prompt = f"""
+PROJECT:
+{project}
+
+ERROR:
+{error}
+
+PROJECT CODE:
+{context}
+
+حلل الخطأ باستخدام الكود الذي تم عرضه فقط.
+لا تعدل أي ملف.
+"""
+
+    try:
+        result = ask_ollama(prompt)
+
+        print("\n===== MAHANI AGENT DIAGNOSIS =====\n")
+        print(result)
+        print("\n===== END DIAGNOSIS =====")
+
+    except Exception as exc:
+        print(f"AGENT_ERROR: {exc}")
+        sys.exit(2)
+
+if __name__ == "__main__":
+    main()

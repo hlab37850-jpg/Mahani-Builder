@@ -1,0 +1,86 @@
+const STAGES = Object.freeze([
+  'plan',
+  'core',
+  'data',
+  'services',
+  'ui',
+  'verify',
+  'repair'
+]);
+
+function isValidStage(stage) {
+  return STAGES.includes(stage);
+}
+
+function nextStage(stage) {
+  const index = STAGES.indexOf(stage);
+
+  if (index === -1 || index >= STAGES.length - 1) {
+    return null;
+  }
+
+  return STAGES[index + 1];
+}
+
+function previousStage(stage) {
+  const index = STAGES.indexOf(stage);
+
+  if (index <= 0) {
+    return null;
+  }
+
+  return STAGES[index - 1];
+}
+
+function createState(projectName) {
+  return {
+    projectName,
+    currentStage: 'plan',
+    completed: [],
+    failed: [],
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function completeStage(state, stage) {
+  if (!isValidStage(stage)) {
+    throw new Error(`Invalid stage: ${stage}`);
+  }
+
+  if (!state.completed.includes(stage)) {
+    state.completed.push(stage);
+  }
+
+  state.currentStage = nextStage(stage) || stage;
+  state.updatedAt = new Date().toISOString();
+
+  return state;
+}
+
+function failStage(state, stage, error) {
+  if (!isValidStage(stage)) {
+    throw new Error(`Invalid stage: ${stage}`);
+  }
+
+  state.failed.push({
+    stage,
+    error: String(error || 'Unknown error'),
+    at: new Date().toISOString()
+  });
+
+  state.currentStage = stage;
+  state.updatedAt = new Date().toISOString();
+
+  return state;
+}
+
+module.exports = {
+  STAGES,
+  isValidStage,
+  nextStage,
+  previousStage,
+  createState,
+  completeStage,
+  failStage
+};

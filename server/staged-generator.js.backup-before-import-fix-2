@@ -1,0 +1,207 @@
+const fs = require('fs');
+const path = require('path');
+
+function safeProjectName(name) {
+  const raw = String(name || '').trim().toLowerCase();
+
+  let safe = raw
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_');
+
+  if (!safe) {
+    safe = 'mahani_app_' + Date.now();
+  }
+
+  return safe;
+}
+
+function projectRoot(projectName) {
+  return path.join(
+    __dirname,
+    'projects',
+    safeProjectName(projectName)
+  );
+}
+
+function ensureProject(projectName) {
+  const root = projectRoot(projectName);
+
+  fs.mkdirSync(root, { recursive: true });
+  fs.mkdirSync(path.join(root, 'lib'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.github', 'workflows'), {
+    recursive: true
+  });
+
+  return root;
+}
+
+function safeFilePath(filePath) {
+  const value = String(filePath || '').trim();
+
+  if (!value) return null;
+  if (value.includes('..')) return null;
+  if (value.includes('\\')) return null;
+  if (!value.startsWith('lib/')) return null;
+  if (!value.endsWith('.dart')) return null;
+
+  return value;
+}
+
+function writeFiles(projectName, files) {
+  const root = ensureProject(projectName);
+
+  let written = 0;
+
+  for (const file of Array.isArray(files) ? files : []) {
+    if (!file || typeof file !== 'object') continue;
+
+    const filePath = safeFilePath(file.path);
+    if (!filePath) continue;
+
+    const content = String(file.content || '');
+    if (!content.trim()) continue;
+
+    const fullPath = path.resolve(root, filePath);
+    const libRoot = path.resolve(root, 'lib');
+
+    if (!fullPath.startsWith(libRoot + path.sep)) {
+      continue;
+    }
+
+    fs.mkdirSync(path.dirname(fullPath), {
+      recursive: true
+    });
+
+    fs.writeFileSync(
+      fullPath,
+      content.endsWith('\n') ? content : content + '\n',
+      'utf8'
+    );
+
+    written++;
+  }
+
+  return {
+    root,
+    written
+  };
+}
+
+function listDartFiles(projectName) {
+  const root = projectRoot(projectName);
+  const libRoot = path.join(root, 'lib');
+
+  if (!fs.existsSync(libRoot)) {
+    return [];
+  }
+
+  const result = [];
+
+  function walk(dir) {
+    for (const entry of fs.readdirSync(dir, {
+      withFileTypes: true
+    })) {
+      const full = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+
+      if (entry.isFile() && entry.name.endsWith('.dart')) {
+        result.push(path.relative(root, full));
+      }
+    }
+  }
+
+  walk(libRoot);
+
+  return result.sort();
+}
+
+function findMissingRelativeImports(projectName) {
+  const root = projectRoot(projectName);
+  const dartFiles = listDartFiles(projectName);
+  const missing = [];
+
+  for (const relativeFile of dartFiles) {
+    const fullFile = path.join(root, relativeFile);
+    const source = fs.readFileSync(fullFile, 'utf8');
+
+    const regex =
+      /import\s+['"](\.{1,2}\/[^'"]+\.dart)['"]\s*;/g;
+
+    let match;
+
+    while ((match = regex.exec(source))) {
+      const target = path.resolve(
+        path.dirname(fullFile),
+        match[1]
+      );
+
+      if (!fs.existsSync(target)) {
+        missing.push({
+          from: relativeFile,
+          import: match[1]
+        });
+      }
+    }
+  }
+
+  return missing;
+}
+
+function scanForbiddenPatterns(projectName) {
+  const root = projectRoot(projectName);
+  const dartFiles = listDartFiles(projectName);
+
+  const patterns = [
+    /Future\.delayed/g,
+    /\bTODO\b/g,
+    /\bplaceholder\b/gi,
+    /\bexample\b/gi,
+    /تم تحليل البيانات/g,
+    /بيانات وهمية/g
+  ];
+
+  const findings = [];
+
+  for (const relativeFile of dartFiles) {
+    const fullFile = path.join(root, relativeFile);
+    const source = fs.readFileSync(fullFile, 'utf8');
+
+    for (const pattern of patterns) {
+      if (pattern.test(source)) {
+        findings.push({
+          file: relativeFile,
+          pattern: pattern.toString()
+        });
+
+        pattern.lastIndex = 0;
+      }
+    }
+  }
+
+  return findings;
+}
+
+function getProjectReport(projectName) {
+  return {
+    project: safeProjectName(projectName),
+    files: listDartFiles(projectName),
+    missingImports: findMissingRelativeImports(projectName),
+    forbiddenPatterns: scanForbiddenPatterns(projectName)
+  };
+}
+
+module.exports = {
+  safeProjectName,
+  projectRoot,
+  ensureProject,
+  writeFiles,
+  listDartFiles,
+  findMissingRelativeImports,
+  scanForbiddenPatterns,
+  getProjectReport
+};

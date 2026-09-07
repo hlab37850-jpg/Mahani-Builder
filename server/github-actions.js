@@ -268,14 +268,26 @@ async function waitForWorkflowReady(owner, repo, workflowFile, token, timeout = 
   throw new Error('GITHUB_WORKFLOW_NOT_READY: workflow was not registered in time');
 }
 
-async function dispatchWorkflow(owner, repo, workflowFile, ref, token) {
-  await githubRequest(
+async function dispatchWorkflow(
+  owner,
+  repo,
+  workflowFile,
+  ref,
+  token
+) {
+  const result = await githubRequest(
     'POST',
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}` +
     `/actions/workflows/${encodeURIComponent(workflowFile)}/dispatches`,
     token,
     JSON.stringify({ ref })
   );
+
+  console.log(
+    `[GITHUB] Workflow dispatched: ${workflowFile} @ ${ref}`
+  );
+
+  return result;
 }
 
 async function getWorkflowRuns(owner, repo, token) {
@@ -512,6 +524,13 @@ async function buildProject(
   projectPath,
   outputDir
 ) {
+  const workflowFile = 'build-apk.yml';
+  const ref = 'main';
+
+  console.log(
+    `[GITHUB] Ensuring repository ${owner}/${repo}`
+  );
+
   const repository = await ensureRepository(
     owner,
     repo,
@@ -530,48 +549,130 @@ async function buildProject(
   const repoUrl = pushResult.url;
   const commitSha = pushResult.commitSha;
 
-  console.log(`[GITHUB] Waiting for workflow for commit ${commitSha}...`);
-
-  const run = await waitForWorkflowRunBySha(
-    owner,
-    repo,
-    token,
-    commitSha
+  console.log(
+    `[GITHUB] Project commit: ${commitSha}`
   );
 
-  console.log(`[GITHUB] New workflow run: ${run.id}`);
+  /*
+   * IMPORTANT:
+   * The workflow is workflow_dispatch-only.
+   * Therefore the push above does NOT start a build.
+   */
 
-  const completed = await waitForWorkflowSuccess(
+  console.log(
+    `[GITHUB] Dispatching ${workflowFile} for ${ref}...`
+  );
+
+  const previousRuns =
+    await getWorkflowRuns(
+      owner,
+      repo,
+      token
+    );
+
+  const previousIds =
+    (previousRuns.workflow_runs || [])
+      .map(run => run.id);
+
+  await dispatchWorkflow(
     owner,
     repo,
-    run.id,
+    workflowFile,
+    ref,
     token
   );
 
-  const artifacts = await getRunArtifacts(
-    owner,
-    repo,
-    completed.id,
-    token
+  console.log(
+    '[GITHUB] Waiting for dispatched workflow run...'
   );
+
+  let run = null;
+
+  for (let i = 0; i < 40; i++) {
+    const data = await getWorkflowRuns(
+      owner,
+      repo,
+      token
+    );
+
+    const candidates =
+      (data.workflow_runs || [])
+        .filter(item =>
+          !previousIds.includes(item.id)
+        )
+        .filter(item =>
+          item.event === 'workflow_dispatch'
+        )
+        .filter(item =>
+          item.head_sha === commitSha
+        );
+
+    if (candidates.length > 0) {
+      run = candidates[0];
+      break;
+    }
+
+    await new Promise(resolve =>
+      setTimeout(resolve, 3000)
+    );
+  }
+
+  if (!run) {
+    throw new Error(
+      `GITHUB_WORKFLOW_RUN_NOT_FOUND: ` +
+      `لم يتم العثور على workflow_dispatch مرتبط بالـ commit ${commitSha}`
+    );
+  }
+
+  console.log(
+    `[GITHUB] Workflow run found: ${run.id}`
+  );
+
+  console.log(
+    `[GITHUB] Workflow URL: ${run.html_url}`
+  );
+
+  const completed =
+    await waitForWorkflowSuccess(
+      owner,
+      repo,
+      run.id,
+      token
+    );
+
+  const artifacts =
+    await getRunArtifacts(
+      owner,
+      repo,
+      completed.id,
+      token
+    );
+
+  const availableArtifacts =
+    artifacts.artifacts || [];
 
   const artifact =
-    (artifacts.artifacts || []).find(
-      item =>
-        item.name === 'mahani_app-apk' &&
-        item.expired === false
+    availableArtifacts.find(item =>
+      item.name === 'mahani_app-apk' &&
+      item.expired === false
     ) ||
-    (artifacts.artifacts || []).find(
-      item =>
-        String(item.name).toLowerCase().includes('apk') &&
-        item.expired === false
+    availableArtifacts.find(item =>
+      String(item.name)
+        .toLowerCase()
+        .includes('apk') &&
+      item.expired === false
     );
 
   if (!artifact) {
     throw new Error(
-      'GitHub Actions succeeded but no APK artifact was found'
+      `GITHUB_APK_ARTIFACT_NOT_FOUND: ` +
+      `Workflow ${completed.id} نجح ولكن لم يتم العثور على APK artifact.`
     );
   }
+
+  console.log(
+    `[GITHUB] APK artifact found: ${artifact.id}`
+  );
 
   const zipPath = path.join(
     outputDir,
@@ -586,9 +687,23 @@ async function buildProject(
     zipPath
   );
 
-  const apkPath = await extractApk(
-    zipPath,
-    outputDir
+  const apkPath =
+    await extractApk(
+      zipPath,
+      outputDir
+    );
+
+  const apkSize =
+    fs.statSync(apkPath).size;
+
+  if (!apkSize || apkSize < 1024) {
+    throw new Error(
+      `GITHUB_INVALID_APK: APK غير صالح أو حجمه غير منطقي (${apkSize} bytes)`
+    );
+  }
+
+  console.log(
+    `[GITHUB] APK downloaded successfully: ${apkPath}`
   );
 
   return {
@@ -597,14 +712,35 @@ async function buildProject(
       fullName: repository.full_name,
       url: repoUrl
     },
+
+    commitSha,
+
     runId: completed.id,
-    workflowUrl: completed.html_url,
-    artifactId: artifact.id,
-    artifactName: artifact.name,
+
+    workflowUrl:
+      completed.html_url,
+
+    workflowEvent:
+      completed.event,
+
+    workflowConclusion:
+      completed.conclusion,
+
+    artifactId:
+      artifact.id,
+
+    artifactName:
+      artifact.name,
+
+    artifactSize:
+      artifact.size_in_bytes,
+
     apkPath,
-    apkSize: fs.statSync(apkPath).size
+
+    apkSize
   };
 }
+
 
 module.exports = {
   normalizeRepoName,
