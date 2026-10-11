@@ -161,7 +161,7 @@ app.post('/api/analyze', async (req, res) => {
     if (!apiKey) {
       return res.status(500).json({
         success: false,
-        error: 'OPENROUTER_API_KEY غير موجود في .env'
+        error: 'OPENROUTER_API_KEY غير موجود في إعدادات الاستضافة'
       });
     }
 
@@ -174,8 +174,7 @@ app.post('/api/analyze', async (req, res) => {
 
     if (projectName) {
       console.log(
-        '[MAHANI] استئناف المشروع المتوقف: ' +
-        projectName
+        '[MAHANI] استئناف المشروع المتوقف: ' + projectName
       );
     } else {
       projectName = safeProjectName(appName);
@@ -226,7 +225,7 @@ app.post('/api/analyze', async (req, res) => {
       artifactName: null
     };
 
-    console.log('[MAHANI] GITHUB APK BUILD ALREADY COMPLETED BY ENGINE');
+    console.log('[MAHANI] GITHUB APK BUILD COMPLETED BY ENGINE');
     console.log('[MAHANI] APK:', githubResult.apkPath);
 
     const elapsed = Math.round(
@@ -239,7 +238,7 @@ app.post('/api/analyze', async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'تم إنشاء المشروع عبر المحرك الاحترافي',
+      message: 'تم إنشاء المشروع وبناء APK عبر GitHub Actions',
       engine: 'professional',
       model: MODEL,
       durationSeconds: elapsed,
@@ -254,10 +253,9 @@ app.post('/api/analyze', async (req, res) => {
         workflowUrl: githubResult.workflowUrl,
         artifactId: githubResult.artifactId,
         artifactName: githubResult.artifactName,
-        apkPath: githubResult.apkPath,
         apkSize: githubResult.apkSize
       },
-      apkUrl: githubResult.apkPath || null,
+      apkUrl: '/api/project/' + encodeURIComponent(projectName) + '/apk',
       workflowUrl: githubResult.workflowUrl || null,
       runId: githubResult.runId || null,
       stages: result.stages,
@@ -275,6 +273,57 @@ app.post('/api/analyze', async (req, res) => {
       success: false,
       error: 'فشل إنشاء المشروع',
       details: error.message
+    });
+  }
+});
+
+app.get('/api/project/:name/apk', (req, res) => {
+  try {
+    const projectName = safeProjectName(req.params.name);
+    const projectsRoot = path.resolve(__dirname, 'projects');
+    const projectRoot = path.resolve(projectsRoot, projectName);
+    const apkPath = path.join(
+      projectRoot,
+      'github-build',
+      'app-release.apk'
+    );
+
+    if (!projectRoot.startsWith(projectsRoot + path.sep)) {
+      return res.status(400).json({
+        success: false,
+        error: 'اسم المشروع غير صالح'
+      });
+    }
+
+    if (!fs.existsSync(apkPath) || !fs.statSync(apkPath).isFile()) {
+      return res.status(404).json({
+        success: false,
+        error: 'ملف APK غير موجود. أعد إنشاء التطبيق أو تحقق من اكتمال البناء السحابي.'
+      });
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="' + projectName + '.apk"'
+    );
+
+    return res.sendFile(apkPath, error => {
+      if (error) {
+        console.error('[APK DOWNLOAD ERROR]', error.message);
+        if (!res.headersSent) {
+          res.status(error.statusCode || 500).json({
+            success: false,
+            error: 'تعذر إرسال ملف APK'
+          });
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[APK ROUTE ERROR]', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'تعذر تجهيز رابط APK'
     });
   }
 });
