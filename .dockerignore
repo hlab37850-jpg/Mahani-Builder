@@ -1,0 +1,9 @@
+.git
+.env
+.env.*
+node_modules
+server/projects
+**/*.apk
+**/*.zip
+*.log
+.DS_Store
