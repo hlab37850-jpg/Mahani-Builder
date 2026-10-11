@@ -359,22 +359,22 @@ Reuse the existing data layer.
 Do not duplicate SQLite or model logic.
 `,
       2: `
-SERVICES-2 DOCUMENT:
-Create only document-wallet services.
-Use the existing models and repositories.
-Do not create duplicate persistence.
+SERVICES-2 FEATURE SERVICES:
+Create the services for the primary capabilities explicitly requested in APP.description and APP.requirements.
+Use the existing models and repositories. Implement real business operations and validation.
+Do not introduce unrelated product domains or duplicate persistence.
 `,
       3: `
-SERVICES-3 FINANCE:
-Create only finance services.
-Use the existing models and repositories.
-Do not create duplicate persistence.
+SERVICES-3 BUSINESS LOGIC:
+Implement the next set of domain operations required by APP.description and APP.requirements.
+Prioritize user-requested workflows, validation, calculations, and state transitions.
+Reuse existing models, repositories, and services. Do not invent unrelated features.
 `,
       4: `
-SERVICES-4 HEALTH-VAULT:
-Create only health-reminder and secure-vault services.
-Reuse existing models, repositories, and storage.
-Do not duplicate business or persistence logic.
+SERVICES-4 DOMAIN INTEGRATION:
+Implement remaining requested domain services and integrate them with existing repositories.
+Use only capabilities justified by APP.description and APP.requirements.
+Reuse existing storage and avoid duplicate business logic.
 `
     },
 
@@ -385,16 +385,15 @@ Create only the application shell and navigation structure.
 Reuse existing core, data, and services.
 `,
       2: `
-UI-2 WALLET-FINANCE:
-Create only functional document-wallet and finance UI.
-Use existing models, repositories, and services.
-Do not bypass persistence with fake local state.
+UI-2 PRIMARY FEATURES:
+Create the primary functional screens explicitly requested in APP.description and APP.requirements.
+Use the existing models, repositories, and services. Connect controls to real operations and persisted data.
+Do not add unrelated features or fake local state.
 `,
       3: `
-UI-3 TASKS-HEALTH-VAULT:
-Create only functional tasks, habits, health, and vault UI.
-Use existing data and services.
-Do not duplicate business logic.
+UI-3 SECONDARY FEATURES:
+Create the remaining user-requested screens and workflows that are not covered by UI-2.
+Use existing data and services, maintain consistent navigation and Arabic RTL, and do not duplicate business logic.
 `,
       4: `
 UI-4 INTEGRATION:
@@ -448,6 +447,8 @@ The data layer is shared by all later services and UI.
 Models -> SQLite schema -> repositories -> services -> UI must remain consistent.
 
 STRICT RULES:
+- Every feature must be derived from APP.description, APP.appType, and APP.requirements.
+- Do not assume this is a wallet, finance, health, task, or vault application unless the user explicitly requested that domain.
 - Return JSON only.
 - Return exactly one object with a "files" array.
 - Generate exactly one file unless the current integration genuinely requires otherwise.
@@ -597,13 +598,13 @@ function generateStage(
     'data-4-integration': 2000,
 
     'services-1-storage': 1800,
-    'services-2-document': 1800,
-    'services-3-finance': 1800,
-    'services-4-health-vault': 2000,
+    'services-2-feature-services': 1800,
+    'services-3-business-logic': 1800,
+    'services-4-integration': 2000,
 
     'ui-1-shell': 2200,
-    'ui-2-wallet-finance': 2400,
-    'ui-3-tasks-health-vault': 2400,
+    'ui-2-primary-features': 2400,
+    'ui-3-secondary-features': 2400,
     'ui-4-integration': 2400
   };
 
@@ -1866,13 +1867,13 @@ async function buildProject(
     'data-4-integration',
 
     'services-1-storage',
-    'services-2-document',
-    'services-3-finance',
-    'services-4-health-vault',
+    'services-2-feature-services',
+    'services-3-business-logic',
+    'services-4-integration',
 
     'ui-1-shell',
-    'ui-2-wallet-finance',
-    'ui-3-tasks-health-vault',
+    'ui-2-primary-features',
+    'ui-3-secondary-features',
     'ui-4-integration'
   ];
 
