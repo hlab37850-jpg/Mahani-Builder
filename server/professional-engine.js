@@ -2045,6 +2045,24 @@ console.log(
     '[ENGINE] GitHub-only pipeline: local Flutter execution skipped'
   );
 
+  // Exclude internal resume state and downloaded APK artifacts from source control.
+  const gitignorePath = path.join(projectRoot, '.gitignore');
+  const gitignoreContent = fs.existsSync(gitignorePath)
+    ? fs.readFileSync(gitignorePath, 'utf8')
+    : '';
+  const requiredIgnoreEntries = ['.mahani-checkpoint.json', 'github-build/'];
+  const missingIgnoreEntries = requiredIgnoreEntries.filter(
+    entry => !gitignoreContent.split(/\r?\n/).includes(entry)
+  );
+  if (missingIgnoreEntries.length) {
+    fs.appendFileSync(
+      gitignorePath,
+      (gitignoreContent.endsWith('\n') || !gitignoreContent ? '' : '\n') +
+      missingIgnoreEntries.join('\n') + '\n',
+      'utf8'
+    );
+  }
+
   writeGitHubWorkflow(projectName);
 
   const githubActions = require('./github-actions');

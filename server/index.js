@@ -69,6 +69,7 @@ function findResumableProject(appName, idea, appType, design) {
 
       if (
         !checkpoint ||
+        checkpoint.buildSucceeded === true ||
         checkpoint.version !== 2 ||
         !checkpoint.projectName ||
         !Array.isArray(checkpoint.completedStages) ||
