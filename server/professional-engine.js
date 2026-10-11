@@ -2007,22 +2007,8 @@ async function buildProject(
       }
     }
 
-    if (
-      checkpoint.completedStages.length === stages.length
-    ) {
-      try {
-        fs.unlinkSync(checkpointPath);
-
-        console.log(
-          '[CHECKPOINT] اكتملت جميع مراحل AI — تم حذف checkpoint'
-        );
-      } catch (error) {
-        console.log(
-          '[CHECKPOINT] تعذر حذف checkpoint: ' +
-          error.message
-        );
-      }
-    }
+    // Keep the checkpoint until cloud build and APK download succeed.
+    // This allows retrying a failed cloud build without regenerating files.
 
 console.log(
     '[ENGINE] التحقق من ملفات المشروع قبل GitHub Actions'
@@ -2110,6 +2096,13 @@ console.log(
     );
 
   const apkPath = githubBuild.apkPath;
+
+  checkpoint.buildSucceeded = true;
+  fs.writeFileSync(
+    checkpointPath,
+    JSON.stringify(checkpoint, null, 2),
+    'utf8'
+  );
 
   console.log(
     '[ENGINE] تم إنشاء APK عبر GitHub Actions: ' +
