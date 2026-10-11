@@ -73,7 +73,7 @@ function findResumableProject(appName, idea, appType, design) {
         !checkpoint.projectName ||
         !Array.isArray(checkpoint.completedStages) ||
         checkpoint.completedStages.length === 0 ||
-        checkpoint.completedStages.length >= 16
+        checkpoint.completedStages.length > 16
       ) {
         continue;
       }
