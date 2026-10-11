@@ -3,78 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0f172a">
+<meta name="description" content="Mahani Builder AI — إنشاء تطبيقات Android من وصفك باستخدام الذكاء الاصطناعي والبناء السحابي.">
 <title>Mahani Builder AI</title>
 <style>
 *{box-sizing:border-box}
-body{
-  margin:0;
-  font-family:Arial,sans-serif;
-  background:#0f172a;
-  color:#fff;
-}
-.container{
-  max-width:800px;
-  margin:60px auto;
-  padding:25px;
-}
-.card{
-  background:#1e293b;
-  border-radius:20px;
-  padding:30px;
-  box-shadow:0 20px 50px #0005;
-}
-h1{
-  margin-top:0;
-  font-size:32px;
-}
-p{color:#cbd5e1}
-input,textarea,select{
-  width:100%;
-  margin-top:8px;
-  margin-bottom:18px;
-  padding:14px;
-  border:1px solid #475569;
-  border-radius:12px;
-  background:#0f172a;
-  color:#fff;
-  font-size:16px;
-}
+body{margin:0;font-family:Arial,sans-serif;background:#0f172a;color:#fff;min-height:100vh}
+.container{width:min(800px,100%);margin:clamp(16px,6vh,60px) auto;padding:16px}
+.card{background:#1e293b;border:1px solid #334155;border-radius:20px;padding:clamp(18px,4vw,30px);box-shadow:0 20px 50px #0005}
+h1{margin-top:0;font-size:clamp(26px,5vw,32px)}
+p{color:#cbd5e1;line-height:1.7}
+label{display:block;font-weight:700;margin-top:8px}
+input,textarea,select{width:100%;margin-top:8px;margin-bottom:18px;padding:14px;border:1px solid #475569;border-radius:12px;background:#0f172a;color:#fff;font-size:16px;font-family:inherit}
 textarea{min-height:140px;resize:vertical}
-button{
-  width:100%;
-  padding:15px;
-  border:0;
-  border-radius:12px;
-  background:#2563eb;
-  color:white;
-  font-size:17px;
-  font-weight:bold;
-}
-button:active{transform:scale(.98)}
-#result{
-  margin-top:20px;
-  white-space:pre-wrap;
-  color:#93c5fd;
-}
+button,.link-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:14px 18px;border:0;border-radius:12px;background:#2563eb;color:#fff;font-size:16px;font-weight:bold;text-decoration:none;cursor:pointer}
+button{width:100%}
+button:disabled{opacity:.65;cursor:wait}
+#result{margin-top:20px;white-space:pre-wrap;color:#93c5fd;overflow-wrap:anywhere}
+.result-card{padding:18px;border-radius:14px;background:#10251a;border:1px solid #166534}
+.result-card h3{margin-top:0;color:#bbf7d0}
+.result-card a{margin:6px 0}
+.error-card{padding:18px;border-radius:12px;background:#351616;border:1px solid #7f1d1d;color:#fecaca;white-space:normal;overflow-wrap:anywhere}
+.muted{font-size:13px;color:#94a3b8}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.actions a{width:auto}
+@media(max-width:520px){.container{padding:10px}.card{padding:18px}.actions{flex-direction:column}.actions a{width:100%}}
 </style>
 </head>
-
 <body>
 <div class="container">
-  <div class="card">
+  <main class="card">
     <h1>🚀 Mahani Builder AI</h1>
-    <p>حوّل فكرتك إلى تطبيق حقيقي بالذكاء الاصطناعي.</p>
-
+    <p>حوّل فكرتك إلى تطبيق Android حقيقي. يُنشأ المشروع ويُرسل إلى GitHub، ثم يُبنى APK سحابيًا عبر GitHub Actions.</p>
     <form id="projectForm">
+      <label for="appName">اسم التطبيق</label>
+      <input id="appName" name="appName" maxlength="80" placeholder="مثال: مدير المصاريف" required>
 
-      <label>اسم التطبيق</label>
-      <input id="appName" placeholder="مثال: مدير المصاريف" required>
+      <label for="idea">فكرة التطبيق</label>
+      <textarea id="idea" name="idea" maxlength="12000" placeholder="اشرح الوظائف والشاشات وطريقة عمل التطبيق..." required></textarea>
 
-      <label>فكرة التطبيق</label>
-      <textarea id="idea" placeholder="اكتب فكرة التطبيق بالتفصيل..." required></textarea>
-
-      <label>نوع التطبيق</label>
-      <select id="appType">
+      <label for="appType">نوع التطبيق</label>
+      <select id="appType" name="appType">
         <option>تطبيق عام</option>
         <option>متجر إلكتروني</option>
         <option>مطعم</option>
@@ -83,131 +52,125 @@ button:active{transform:scale(.98)}
         <option>محاسبة</option>
       </select>
 
-      <label>التصميم</label>
-      <textarea id="design" placeholder="مثال: تصميم حديث، عربي RTL، ألوان احترافية"></textarea>
+      <label for="design">التصميم المطلوب</label>
+      <textarea id="design" name="design" maxlength="4000" placeholder="مثال: تصميم حديث، عربي RTL، ألوان احترافية"></textarea>
 
-      <button type="submit">🧠 تحليل وإنشاء المشروع</button>
-
+      <button id="submitButton" type="submit">🧠 تحليل وإنشاء التطبيق</button>
     </form>
-
-    <pre id="result"></pre>
-  </div>
+    <section id="result" aria-live="polite" role="status"></section>
+    <p class="muted">قد يستغرق الإنشاء والبناء السحابي عدة دقائق. لا تغلق الصفحة قبل ظهور النتيجة.</p>
+  </main>
 </div>
-
 <script>
-document.getElementById('projectForm').addEventListener('submit', async function(e){
-  e.preventDefault();
-
+(function () {
+  const form = document.getElementById('projectForm');
   const result = document.getElementById('result');
+  const button = document.getElementById('submitButton');
+  const originalButtonText = button.textContent;
 
-  const appName = document.getElementById('appName').value;
-  const idea = document.getElementById('idea').value;
-  const appType = document.getElementById('appType').value;
-  const design = document.getElementById('design').value;
-
-  try {
-    result.textContent =
-      '🧠 جاري تحليل فكرة التطبيق...';
-
-    const analyzeResponse = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        appName,
-        idea,
-        appType,
-        design
-      })
-    });
-
-    const analyzeData = await analyzeResponse.json();
-
-    if (!analyzeResponse.ok || analyzeData.success === false) {
-      throw new Error(
-        analyzeData.error || 'فشل تحليل المشروع'
-      );
+  function addLink(parent, href, label, primary) {
+    if (!href || typeof href !== 'string') return;
+    const link = document.createElement('a');
+    link.href = href;
+    link.textContent = label;
+    link.className = 'link-button';
+    if (!primary) {
+      link.style.background = '#334155';
     }
-
-    result.textContent =
-      '✅ تم تحليل المشروع\n\n' +
-      '🚀 جاري إنشاء APK...\n' +
-      '⏳ سيتم البناء عبر GitHub Actions...';
-
-    const buildResponse = await fetch('/api/build-apk', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        appName,
-        idea,
-        appType,
-        design
-      })
-    });
-
-    const buildData = await buildResponse.json();
-
-    if (!buildResponse.ok || !buildData.success) {
-      throw new Error(
-        buildData.error || 'فشل بناء APK'
-      );
+    if (/^https:\/\//i.test(href)) {
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
     }
-
-    result.innerHTML = `
-      <div style="padding:20px;border-radius:14px;background:#10251a;">
-        <h3>🎉 تم إنشاء التطبيق بنجاح</h3>
-
-        <p>✅ تم بناء APK بنجاح</p>
-
-        <p>
-          <a
-            href="${buildData.apkUrl}"
-            download
-            style="
-              display:inline-block;
-              padding:14px 22px;
-              border-radius:10px;
-              background:#22c55e;
-              color:white;
-              text-decoration:none;
-              font-weight:bold;
-            "
-          >
-            📱 تحميل APK
-          </a>
-        </p>
-
-        <p>
-          <a
-            href="${buildData.workflowUrl}"
-            target="_blank"
-            style="color:#60a5fa;"
-          >
-            🔧 مشاهدة Build على GitHub
-          </a>
-        </p>
-
-        <small>
-          Run ID: ${buildData.runId}
-        </small>
-      </div>
-    `;
-
-  } catch(error) {
-
-    result.innerHTML = `
-      <div style="padding:18px;border-radius:12px;background:#351616;">
-        ❌ <strong>حدث خطأ</strong>
-        <br><br>
-        ${error.message}
-      </div>
-    `;
+    parent.appendChild(link);
   }
-});
-</script>
 
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    if (button.disabled) return;
+
+    const payload = {
+      appName: document.getElementById('appName').value.trim(),
+      idea: document.getElementById('idea').value.trim(),
+      appType: document.getElementById('appType').value,
+      design: document.getElementById('design').value.trim()
+    };
+
+    if (!payload.appName || !payload.idea) {
+      result.textContent = 'يرجى إدخال اسم التطبيق وفكرته.';
+      return;
+    }
+
+    button.disabled = true;
+    button.textContent = '⏳ جارٍ إنشاء المشروع والبناء السحابي...';
+    result.textContent = 'بدأت العملية. يجري توليد الملفات، ثم رفع المشروع إلى GitHub وتشغيل بناء APK سحابيًا. قد تستغرق العملية عدة دقائق.';
+
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (_) {
+        throw new Error('استجابة الخادم ليست JSON صالحًا. تحقق من نشر خدمة الخادم وسجلاتها.');
+      }
+
+      if (!response.ok || !data || data.success !== true) {
+        const message = data && (data.details || data.error);
+        throw new Error(message || 'فشل إنشاء التطبيق.');
+      }
+
+      const card = document.createElement('div');
+      card.className = 'result-card';
+
+      const heading = document.createElement('h3');
+      heading.textContent = '✅ اكتمل إنشاء التطبيق';
+      card.appendChild(heading);
+
+      const summary = document.createElement('p');
+      summary.textContent = 'اسم التطبيق: ' + (data.project && data.project.name ? data.project.name : payload.appName);
+      card.appendChild(summary);
+
+      const status = document.createElement('p');
+      status.textContent = 'حجم APK: ' + (data.github && Number.isFinite(Number(data.github.apkSize)) ? (Number(data.github.apkSize) / (1024 * 1024)).toFixed(2) + ' MB' : 'تم إكمال عملية البناء');
+      card.appendChild(status);
+
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+      const apkUrl = data.apkUrl || (data.project && data.project.folder
+        ? '/api/project/' + encodeURIComponent(data.project.folder) + '/apk'
+        : '');
+      addLink(actions, apkUrl, '📱 تحميل APK', true);
+      addLink(actions, data.workflowUrl || (data.github && data.github.workflowUrl), '🔧 مشاهدة بناء GitHub Actions', false);
+      addLink(actions, data.github && data.github.repository && data.github.repository.url, '📁 مستودع التطبيق', false);
+      card.appendChild(actions);
+
+      if (data.runId || (data.github && data.github.runId)) {
+        const run = document.createElement('p');
+        run.className = 'muted';
+        run.textContent = 'Workflow Run ID: ' + (data.runId || data.github.runId);
+        card.appendChild(run);
+      }
+
+      result.replaceChildren(card);
+    } catch (error) {
+      const errorCard = document.createElement('div');
+      errorCard.className = 'error-card';
+      const title = document.createElement('strong');
+      title.textContent = '❌ لم تكتمل العملية';
+      const message = document.createElement('p');
+      message.textContent = error && error.message ? error.message : 'حدث خطأ غير معروف.';
+      errorCard.append(title, message);
+      result.replaceChildren(errorCard);
+    } finally {
+      button.disabled = false;
+      button.textContent = originalButtonText;
+    }
+  });
+})();
+</script>
 </body>
 </html>
