@@ -1255,7 +1255,7 @@ async function repairFlutterProject(
     // application has no compilation errors. Do NOT send these
     // harmless diagnostics to the AI repair loop.
     const errorMatches = analyzeOutput.match(
-      /(?:^|\\n)\\s*error\\s*[•:]/gi
+      /(?:^|\n)\s*error\s*[•:]/gi
     );
 
     const errorCount = errorMatches
@@ -1645,12 +1645,12 @@ function writeGitHubWorkflow(projectName) {
     '        uses: actions/setup-java@v5',
     '        with:',
     '          distribution: temurin',
-    "          java-version: '' + VERSIONS.java + ''",
+    '          java-version: ' + VERSIONS.java,
     '',
     '      - name: Setup Flutter',
     '        uses: subosito/flutter-action@v2',
     '        with:',
-    "          flutter-version: '' + VERSIONS.flutter + ''",
+    '          flutter-version: ' + VERSIONS.flutter,
     '          channel: stable',
     '          cache: true',
     '',

@@ -1,6 +1,6 @@
 const {
   dispatchWorkflow,
-  getLatestWorkflowRun
+  getWorkflowRuns
 } = require('../server/github-actions');
 
 module.exports = async function handler(req, res) {
@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    const before = await getLatestWorkflowRun(owner, repo, token);
+    const before = await getWorkflowRuns(owner, repo, token);
     const previousId = before.workflow_runs?.[0]?.id || 0;
 
     await dispatchWorkflow(
