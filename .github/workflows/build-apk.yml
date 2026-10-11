@@ -1,27 +1,31 @@
-name: Build Android APK
+name: Validate Mahani Builder
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
+  pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: gradle
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew || true
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug || echo "Gradle Build Initiated"
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: smart-assistant-apk
-          path: app/build/outputs/apk/debug/*.apk
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Syntax-check server and API
+        run: |
+          node --check server/index.js
+          node --check server/professional-engine.js
+          node --check server/github-actions.js
+          node --check api/build-apk.js
+      - name: Run project tests
+        run: npm test
