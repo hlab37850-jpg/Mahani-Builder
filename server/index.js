@@ -69,11 +69,12 @@ function findResumableProject(appName, idea, appType, design) {
 
       if (
         !checkpoint ||
+        checkpoint.buildSucceeded === true ||
         checkpoint.version !== 2 ||
         !checkpoint.projectName ||
         !Array.isArray(checkpoint.completedStages) ||
         checkpoint.completedStages.length === 0 ||
-        checkpoint.completedStages.length >= 16
+        checkpoint.completedStages.length > 16
       ) {
         continue;
       }
@@ -177,10 +178,22 @@ app.post('/api/analyze', async (req, res) => {
         '[MAHANI] استئناف المشروع المتوقف: ' + projectName
       );
     } else {
-      projectName = safeProjectName(appName);
+      const baseProjectName = safeProjectName(appName);
+      projectName = baseProjectName;
+      const projectsRoot = path.join(__dirname, 'projects');
+
+      // Never mix files from an older app with a new request that happens
+      // to use the same display name. Resumable requests are selected above;
+      // all other runs receive a fresh, collision-free workspace.
+      if (fs.existsSync(path.join(projectsRoot, projectName))) {
+        projectName = `${baseProjectName.slice(0, 40)}_${Date.now().toString().slice(-8)}`;
+        while (fs.existsSync(path.join(projectsRoot, projectName))) {
+          projectName = `${baseProjectName.slice(0, 36)}_${Date.now().toString().slice(-10)}`;
+        }
+      }
 
       console.log(
-        '[MAHANI] لا يوجد مشروع متوقف — إنشاء مشروع جديد: ' +
+        '[MAHANI] لا يوجد مشروع متوقف — إنشاء مساحة مشروع جديدة: ' +
         projectName
       );
     }

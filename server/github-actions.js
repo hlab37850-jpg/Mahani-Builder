@@ -204,11 +204,29 @@ async function pushProjectToGitHub(owner, repo, token, projectPath) {
   // Never overwrite an existing remote history automatically.
   // If the repository already contains unrelated commits, fail safely and
   // let the caller choose an explicit integration strategy.
+  try {
+    await runCommand('git', [
+      'push',
+      '-u',
+      'origin',
+      'main'
+    ], {
+      cwd: projectPath
+    });
+  } catch (error) {
+    // Do not leave the access token embedded in the local .git/config
+    // after a failed push.
+    await runCommand('git', [
+      'remote', 'set-url', 'origin',
+      `https://github.com/${owner}/${repo}.git`
+    ], { cwd: projectPath }).catch(() => {});
+    throw error;
+  }
+
+  // The token was needed only for the push. Keep the saved remote URL clean.
   await runCommand('git', [
-    'push',
-    '-u',
-    'origin',
-    'main'
+    'remote', 'set-url', 'origin',
+    `https://github.com/${owner}/${repo}.git`
   ], {
     cwd: projectPath
   });
