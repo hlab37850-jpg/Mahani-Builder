@@ -60,6 +60,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GITHUB_OWNER: ${{ secrets.GENERATED_APPS_OWNER }}
           GITHUB_TOKEN: ${{ secrets.GENERATED_APPS_TOKEN }}
+          GENERATED_REPOS_PRIVATE: ${{ vars.GENERATED_REPOS_PRIVATE || 'true' }}
           MAHANI_REQUEST_ID: ${{ inputs.request_id }}
           MAHANI_APP_NAME: ${{ inputs.app_name }}
           MAHANI_IDEA: ${{ inputs.idea }}
