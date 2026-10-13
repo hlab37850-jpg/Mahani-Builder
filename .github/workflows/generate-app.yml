@@ -1,0 +1,89 @@
+name: Mahani Cloud App Generator
+
+run-name: Mahani Build - ${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Unique request ID
+        required: true
+        type: string
+      app_name:
+        description: Application name
+        required: true
+        type: string
+      idea:
+        description: Application requirements
+        required: true
+        type: string
+      app_type:
+        description: Application category
+        required: true
+        type: string
+      design:
+        description: Design requirements
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: mahani-generation-${{ inputs.request_id }}
+  cancel-in-progress: false
+
+jobs:
+  generate-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout Mahani Builder
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check source syntax and tests
+        run: npm test
+
+      - name: Generate project, push to GitHub, and build APK
+        id: generate
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GITHUB_OWNER: ${{ secrets.GENERATED_APPS_OWNER }}
+          GITHUB_TOKEN: ${{ secrets.GENERATED_APPS_TOKEN }}
+          MAHANI_REQUEST_ID: ${{ inputs.request_id }}
+          MAHANI_APP_NAME: ${{ inputs.app_name }}
+          MAHANI_IDEA: ${{ inputs.idea }}
+          MAHANI_APP_TYPE: ${{ inputs.app_type }}
+          MAHANI_DESIGN: ${{ inputs.design }}
+        run: node scripts/generate-app.js
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mahani-${{ inputs.request_id }}-apk
+          path: ${{ steps.generate.outputs.apk_path }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish build summary
+        if: always()
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          {
+            echo "## Mahani Builder result"
+            echo ""
+            echo "- Request ID: `$REQUEST_ID`"
+            echo "- Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- APK artifact is available for 7 days after a successful build."
+          } >> "$GITHUB_STEP_SUMMARY"
