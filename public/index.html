@@ -36,11 +36,9 @@ button:disabled{opacity:.65;cursor:wait}
     <h1>🚀 Mahani Builder AI</h1>
     <p>حوّل فكرتك إلى تطبيق Android حقيقي. يُنشأ المشروع ويُرسل إلى GitHub، ثم يُبنى APK سحابيًا عبر GitHub Actions.</p>
     <section style="margin:16px 0;padding:14px;border:1px solid #475569;border-radius:12px">
-      <label for="apiBaseUrl">رابط خدمة البناء المجانية (Cloudflare Worker)</label>
-      <input id="apiBaseUrl" type="url" inputmode="url" placeholder="https://اسم-الخدمة.اسمك.workers.dev" autocomplete="url">
-      <p class="muted">يُحفظ هذا الرابط على جهازك فقط. لا تضع أي مفتاح سري في هذه الخانة.</p>
-      <div id="turnstileWidget" style="margin-top:10px"></div>
-      <p id="serviceStatus" class="muted" aria-live="polite">أدخل رابط Worker الذي أعددته لتفعيل الإنشاء السحابي.</p>
+      <strong>وضع التشغيل المحلي عبر Termux</strong>
+      <p id="serviceStatus" class="muted" aria-live="polite">جارٍ فحص الخادم المحلي...</p>
+      <p class="muted">لا يحتاج هذا الوضع إلى Cloudflare Worker أو Turnstile. احتفظ بمفاتيح الذكاء الاصطناعي وGitHub داخل ملف .env على جهازك فقط.</p>
     </section>
     <form id="projectForm">
       <label for="appName">اسم التطبيق</label>
@@ -73,19 +71,8 @@ button:disabled{opacity:.65;cursor:wait}
   const form = document.getElementById('projectForm');
   const result = document.getElementById('result');
   const button = document.getElementById('submitButton');
-  const apiInput = document.getElementById('apiBaseUrl');
   const serviceStatus = document.getElementById('serviceStatus');
-  const turnstileWidget = document.getElementById('turnstileWidget');
   const originalButtonText = button.textContent;
-  let widgetId = null;
-  let configLoadedFor = '';
-  let turnstileLoading = false;
-
-  try { apiInput.value = localStorage.getItem('mahaniWorkerUrl') || ''; } catch (_) {}
-
-  function apiBase() {
-    return String(apiInput.value || '').trim().replace(/\/+$/, '');
-  }
 
   function addLink(parent, href, label, primary) {
     if (!href || typeof href !== 'string') return;
@@ -94,139 +81,89 @@ button:disabled{opacity:.65;cursor:wait}
     link.textContent = label;
     link.className = 'link-button';
     if (!primary) link.style.background = '#334155';
-    if (/^https:\/\//i.test(href)) {
+    if (/^https?:\/\//i.test(href)) {
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
     }
     parent.appendChild(link);
   }
 
-  function loadTurnstileScript() {
-    if (window.turnstile) return Promise.resolve();
-    if (turnstileLoading) {
-      return new Promise((resolve, reject) => {
-        const start = Date.now();
-        const timer = setInterval(() => {
-          if (window.turnstile) { clearInterval(timer); resolve(); }
-          else if (Date.now() - start > 15000) { clearInterval(timer); reject(new Error('تعذر تحميل Cloudflare Turnstile.')); }
-        }, 200);
-      });
-    }
-    turnstileLoading = true;
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-      script.async = true;
-      script.defer = true;
-      script.onload = () => { turnstileLoading = false; resolve(); };
-      script.onerror = () => { turnstileLoading = false; reject(new Error('تعذر تحميل Cloudflare Turnstile.')); };
-      document.head.appendChild(script);
-    });
-  }
-
-  async function configureWorker() {
-    const base = apiBase();
-    widgetId = null;
-    configLoadedFor = '';
-    turnstileWidget.replaceChildren();
-    if (!base) {
-      serviceStatus.textContent = 'أدخل رابط Worker الذي أعددته لتفعيل الإنشاء السحابي.';
-      return;
-    }
-    try { localStorage.setItem('mahaniWorkerUrl', base); } catch (_) {}
-    serviceStatus.textContent = 'جارٍ الاتصال بخدمة البناء...';
+  async function checkLocalService() {
     try {
-      const response = await fetch(base + '/api/config', { method: 'GET' });
-      const config = await response.json();
-      if (!response.ok || !config.success || !config.siteKey) throw new Error(config.error || 'تعذر قراءة إعدادات الخدمة.');
-      await loadTurnstileScript();
-      widgetId = window.turnstile.render(turnstileWidget, {
-        sitekey: config.siteKey,
-        theme: 'dark',
-        callback: () => { serviceStatus.textContent = 'الخدمة جاهزة. أكمل بيانات التطبيق ثم ابدأ البناء.'; },
-        'expired-callback': () => { serviceStatus.textContent = 'انتهت صلاحية التحقق؛ أعد التحقق قبل الإنشاء.'; },
-        'error-callback': () => { serviceStatus.textContent = 'فشل التحقق الأمني؛ تحقق من إعدادات Turnstile.'; }
-      });
-      configLoadedFor = base;
-      serviceStatus.textContent = 'تم الاتصال بالخدمة. أكمل التحقق الأمني قبل الإنشاء.';
+      const response = await fetch('/api/health', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'الخادم المحلي لا يستجيب');
+      const c = data.configuration || {};
+      const missing = [];
+      if (!c.aiProviderConfigured) missing.push('مفتاح مزود الذكاء الاصطناعي');
+      if (!c.githubOwnerConfigured) missing.push('GITHUB_OWNER');
+      if (!c.githubTokenConfigured) missing.push('GITHUB_TOKEN');
+      if (!c.projectStorageWritable) missing.push('صلاحية حفظ ملفات المشروع');
+      serviceStatus.textContent = data.readyForGeneration
+        ? '✅ الخادم المحلي جاهز. يمكن إنشاء المشروع وإرسال بنائه إلى GitHub Actions.'
+        : '⚠️ الخادم يعمل، لكن يلزم إعداد: ' + missing.join('، ') + '. ضع الإعدادات في .env ثم أعد تشغيل الخادم.';
     } catch (error) {
-      serviceStatus.textContent = error.message || 'تعذر الاتصال بالخدمة. تحقق من الرابط وإعدادات CORS.';
+      serviceStatus.textContent = '❌ تعذر الاتصال بالخادم المحلي. شغّل npm start في Termux وافتح http://127.0.0.1:3000. ' + (error.message || '');
     }
-  }
-
-  apiInput.addEventListener('change', configureWorker);
-  apiInput.addEventListener('blur', () => {
-    if (apiBase() !== configLoadedFor) configureWorker();
-  });
-  if (apiBase()) configureWorker();
-
-  async function fetchStatus(base, requestId) {
-    const response = await fetch(base + '/api/status?requestId=' + encodeURIComponent(requestId), { cache: 'no-store' });
-    const data = await response.json();
-    if (!response.ok || !data.success) throw new Error(data.error || 'تعذر جلب حالة البناء.');
-    return data;
   }
 
   form.addEventListener('submit', async function (event) {
     event.preventDefault();
     if (button.disabled) return;
 
-    const base = apiBase();
-    if (!base || configLoadedFor !== base || !window.turnstile || widgetId === null) {
-      result.textContent = 'أدخل رابط Cloudflare Worker صالحًا وانتظر اكتمال إعداد التحقق الأمني.';
-      return;
-    }
-
     const payload = {
       appName: document.getElementById('appName').value.trim(),
       idea: document.getElementById('idea').value.trim(),
       appType: document.getElementById('appType').value,
-      design: document.getElementById('design').value.trim(),
-      turnstileToken: window.turnstile.getResponse(widgetId)
+      design: document.getElementById('design').value.trim()
     };
     if (!payload.appName || !payload.idea) {
       result.textContent = 'يرجى إدخال اسم التطبيق وفكرته.';
       return;
     }
-    if (!payload.turnstileToken) {
-      result.textContent = 'أكمل التحقق الأمني أولًا.';
-      return;
-    }
 
     button.disabled = true;
-    button.textContent = '⏳ جارٍ إرسال الطلب...';
-    result.textContent = 'يجري إرسال طلبك إلى GitHub Actions. سيُنشأ المشروع ويُبنى APK على خوادم GitHub المجانية ضمن حدود الاستخدام.';
+    button.textContent = '⏳ جارٍ إنشاء المشروع والبناء السحابي...';
+    result.textContent = 'تم إرسال الطلب إلى الخادم المحلي. يجري إنشاء الملفات ورفع المشروع إلى GitHub وتشغيل GitHub Actions. قد تستغرق العملية عدة دقائق؛ لا تغلق الصفحة.';
     try {
-      const response = await fetch(base + '/api/generate', {
+      const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const started = await response.json();
-      if (!response.ok || !started.success || !started.requestId) throw new Error(started.error || 'تعذر بدء البناء السحابي.');
-
-      let status = null;
-      for (let attempt = 0; attempt < 240; attempt++) {
-        button.textContent = '⏳ البناء السحابي: ' + Math.min(99, Math.round((attempt + 1) / 240 * 100)) + '%';
-        await new Promise(resolve => setTimeout(resolve, 8000));
-        status = await fetchStatus(base, started.requestId);
-        result.textContent = status.message || 'يجري بناء التطبيق...';
-        if (status.status === 'completed') break;
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        const details = data.details ? '\n' + data.details : '';
+        throw new Error((data.error || 'تعذر إنشاء المشروع') + details);
       }
 
       const card = document.createElement('div');
-      card.className = status && status.conclusion === 'success' ? 'result-card' : 'error-card';
+      card.className = 'result-card';
       const heading = document.createElement('h3');
-      heading.textContent = status && status.conclusion === 'success' ? '✅ اكتمل البناء السحابي' : 'نتيجة عملية البناء';
+      heading.textContent = '✅ انتهت عملية الإنشاء';
       card.appendChild(heading);
       const message = document.createElement('p');
-      message.textContent = status && status.message ? status.message : 'لم تصل نتيجة نهائية خلال فترة الانتظار. يمكنك متابعة التشغيل من GitHub.';
+      message.textContent = data.message || 'اكتملت عملية إنشاء المشروع.';
       card.appendChild(message);
+      const info = document.createElement('p');
+      info.textContent = 'المجلد: ' + ((data.project && data.project.folder) || 'غير محدد') +
+        '\nعدد الملفات: ' + (Array.isArray(data.files) ? data.files.length : 0) +
+        '\nمدة العملية: ' + (data.durationSeconds || 0) + ' ثانية';
+      card.appendChild(info);
       const actions = document.createElement('div');
       actions.className = 'actions';
-      addLink(actions, status && status.artifactUrl, '📦 فتح نتيجة البناء وتنزيل APK', true);
-      addLink(actions, status && status.runUrl, '🔧 سجلات GitHub Actions', false);
+      addLink(actions, data.apkUrl, '📦 تنزيل APK (إذا اكتمل وحُفظ محليًا)', true);
+      addLink(actions, data.workflowUrl, '🔧 فتح تشغيل GitHub Actions', false);
+      addLink(actions, data.github && data.github.repository, '📁 فتح مستودع التطبيق', false);
       card.appendChild(actions);
+
+      if (Array.isArray(data.stages) && data.stages.length) {
+        const stages = document.createElement('p');
+        stages.textContent = 'مراحل التنفيذ: ' + data.stages.map(s =>
+          typeof s === 'string' ? s : (s.name || s.stage || JSON.stringify(s))
+        ).join('، ');
+        card.appendChild(stages);
+      }
       result.replaceChildren(card);
     } catch (error) {
       const errorCard = document.createElement('div');
@@ -237,14 +174,14 @@ button:disabled{opacity:.65;cursor:wait}
       message.textContent = error && error.message ? error.message : 'حدث خطأ غير معروف.';
       errorCard.append(title, message);
       result.replaceChildren(errorCard);
+      checkLocalService();
     } finally {
       button.disabled = false;
       button.textContent = originalButtonText;
-      if (window.turnstile && widgetId !== null) {
-        try { window.turnstile.reset(widgetId); } catch (_) {}
-      }
     }
   });
+
+  checkLocalService();
 })();
 </script>
 </body>
