@@ -186,12 +186,19 @@ app.post('/api/analyze', async (req, res) => {
       });
     }
 
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    const apiKey = process.env.OPENROUTER_API_KEY || '';
+    const aiProviderConfigured = Boolean(
+      apiKey ||
+      process.env.GROQ_API_KEY ||
+      process.env.CEREBRAS_API_KEY ||
+      process.env.SAMBANOVA_API_KEY ||
+      process.env.COHERE_API_KEY
+    );
 
-    if (!apiKey) {
+    if (!aiProviderConfigured) {
       return res.status(500).json({
         success: false,
-        error: 'OPENROUTER_API_KEY غير موجود في إعدادات الاستضافة'
+        error: 'لم يتم إعداد أي مفتاح لمزود الذكاء الاصطناعي. أضف OPENROUTER_API_KEY أو GROQ_API_KEY أو CEREBRAS_API_KEY أو SAMBANOVA_API_KEY أو COHERE_API_KEY إلى ملف .env.'
       });
     }
 
