@@ -4,7 +4,7 @@
   "description": "Mahani Builder AI web application and cloud Android project generator",
   "main": "server/index.js",
   "scripts": {
-    "test": "node --check server/index.js && node --check server/professional-engine.js && node --check server/github-actions.js && node --check api/build-apk.js && node --check scripts/generate-app.js && node --test tests/*.test.js",
+    "test": "node --check server/index.js && node --check server/professional-engine.js && node --check server/github-actions.js && node --check api/build-apk.js && node --check scripts/generate-app.js && node --input-type=module --check < cloudflare/worker.js && node --test tests/*.test.js",
     "start": "node server/index.js"
   },
   "keywords": ["ai", "android", "flutter", "github-actions"],
