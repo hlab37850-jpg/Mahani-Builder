@@ -1832,9 +1832,17 @@ async function buildProject(
   projectName,
   plan
 ) {
-  if (!apiKey) {
+  const aiProviderConfigured = Boolean(
+    apiKey ||
+    process.env.GROQ_API_KEY ||
+    process.env.CEREBRAS_API_KEY ||
+    process.env.SAMBANOVA_API_KEY ||
+    process.env.COHERE_API_KEY
+  );
+
+  if (!aiProviderConfigured) {
     throw new Error(
-      'OPENROUTER_API_KEY غير موجود'
+      'لم يتم إعداد أي مفتاح لمزود الذكاء الاصطناعي في .env. أضف OPENROUTER_API_KEY أو GROQ_API_KEY أو CEREBRAS_API_KEY أو SAMBANOVA_API_KEY أو COHERE_API_KEY.'
     );
   }
 
