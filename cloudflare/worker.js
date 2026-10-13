@@ -106,7 +106,7 @@ async function handle(request, env) {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            ref: String(env.GITHUB_REF || 'fix/generation-pipeline-verification'),
+            ref: String(env.GITHUB_REF || 'main'),
             inputs: { request_id: requestId, app_name: appName, idea, app_type: appType, design }
           })
         }
