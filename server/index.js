@@ -16,10 +16,39 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, '../public')));
 
 app.get('/api/health', (req, res) => {
+  const projectsRoot = path.join(__dirname, 'projects');
+  let storageWritable = false;
+
+  try {
+    fs.mkdirSync(projectsRoot, { recursive: true });
+    fs.accessSync(projectsRoot, fs.constants.W_OK);
+    storageWritable = true;
+  } catch (error) {
+    storageWritable = false;
+  }
+
+  const configuration = {
+    aiProviderConfigured: Boolean(
+      process.env.OPENROUTER_API_KEY ||
+      process.env.GROQ_API_KEY ||
+      process.env.CEREBRAS_API_KEY ||
+      process.env.SAMBANOVA_API_KEY ||
+      process.env.COHERE_API_KEY
+    ),
+    githubOwnerConfigured: Boolean(process.env.GITHUB_OWNER),
+    githubTokenConfigured: Boolean(process.env.GITHUB_TOKEN),
+    projectStorageWritable: storageWritable
+  };
+
   res.json({
     success: true,
     name: 'Mahani Builder AI',
     status: 'online',
+    readyForGeneration: configuration.aiProviderConfigured &&
+      configuration.githubOwnerConfigured &&
+      configuration.githubTokenConfigured &&
+      configuration.projectStorageWritable,
+    configuration,
     engine: 'professional',
     model: MODEL
   });

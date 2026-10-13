@@ -778,12 +778,16 @@ function collectFiles(projectName) {
     }
   }
 
-  walk(
-    path.join(
-      projectRoot,
-      'lib'
-    )
-  );
+  const libRoot = path.join(projectRoot, 'lib');
+
+  // A partially generated project may not have created lib/ yet.
+  // Treat that as an empty source tree so validation can report the
+  // missing lib/main.dart instead of throwing ENOENT.
+  if (!fs.existsSync(libRoot) || !fs.statSync(libRoot).isDirectory()) {
+    return result;
+  }
+
+  walk(libRoot);
 
   return result.sort();
 }

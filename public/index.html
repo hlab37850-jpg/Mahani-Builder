@@ -35,6 +35,13 @@ button:disabled{opacity:.65;cursor:wait}
   <main class="card">
     <h1>🚀 Mahani Builder AI</h1>
     <p>حوّل فكرتك إلى تطبيق Android حقيقي. يُنشأ المشروع ويُرسل إلى GitHub، ثم يُبنى APK سحابيًا عبر GitHub Actions.</p>
+    <section style="margin:16px 0;padding:14px;border:1px solid #475569;border-radius:12px">
+      <label for="apiBaseUrl">رابط خدمة البناء المجانية (Cloudflare Worker)</label>
+      <input id="apiBaseUrl" type="url" inputmode="url" placeholder="https://اسم-الخدمة.اسمك.workers.dev" autocomplete="url">
+      <p class="muted">يُحفظ هذا الرابط على جهازك فقط. لا تضع أي مفتاح سري في هذه الخانة.</p>
+      <div id="turnstileWidget" style="margin-top:10px"></div>
+      <p id="serviceStatus" class="muted" aria-live="polite">أدخل رابط Worker الذي أعددته لتفعيل الإنشاء السحابي.</p>
+    </section>
     <form id="projectForm">
       <label for="appName">اسم التطبيق</label>
       <input id="appName" name="appName" maxlength="80" placeholder="مثال: مدير المصاريف" required>
@@ -66,7 +73,19 @@ button:disabled{opacity:.65;cursor:wait}
   const form = document.getElementById('projectForm');
   const result = document.getElementById('result');
   const button = document.getElementById('submitButton');
+  const apiInput = document.getElementById('apiBaseUrl');
+  const serviceStatus = document.getElementById('serviceStatus');
+  const turnstileWidget = document.getElementById('turnstileWidget');
   const originalButtonText = button.textContent;
+  let widgetId = null;
+  let configLoadedFor = '';
+  let turnstileLoading = false;
+
+  try { apiInput.value = localStorage.getItem('mahaniWorkerUrl') || ''; } catch (_) {}
+
+  function apiBase() {
+    return String(apiInput.value || '').trim().replace(/\/+$/, '');
+  }
 
   function addLink(parent, href, label, primary) {
     if (!href || typeof href !== 'string') return;
@@ -74,9 +93,7 @@ button:disabled{opacity:.65;cursor:wait}
     link.href = href;
     link.textContent = label;
     link.className = 'link-button';
-    if (!primary) {
-      link.style.background = '#334155';
-    }
+    if (!primary) link.style.background = '#334155';
     if (/^https:\/\//i.test(href)) {
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
@@ -84,77 +101,132 @@ button:disabled{opacity:.65;cursor:wait}
     parent.appendChild(link);
   }
 
+  function loadTurnstileScript() {
+    if (window.turnstile) return Promise.resolve();
+    if (turnstileLoading) {
+      return new Promise((resolve, reject) => {
+        const start = Date.now();
+        const timer = setInterval(() => {
+          if (window.turnstile) { clearInterval(timer); resolve(); }
+          else if (Date.now() - start > 15000) { clearInterval(timer); reject(new Error('تعذر تحميل Cloudflare Turnstile.')); }
+        }, 200);
+      });
+    }
+    turnstileLoading = true;
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      script.async = true;
+      script.defer = true;
+      script.onload = () => { turnstileLoading = false; resolve(); };
+      script.onerror = () => { turnstileLoading = false; reject(new Error('تعذر تحميل Cloudflare Turnstile.')); };
+      document.head.appendChild(script);
+    });
+  }
+
+  async function configureWorker() {
+    const base = apiBase();
+    widgetId = null;
+    configLoadedFor = '';
+    turnstileWidget.replaceChildren();
+    if (!base) {
+      serviceStatus.textContent = 'أدخل رابط Worker الذي أعددته لتفعيل الإنشاء السحابي.';
+      return;
+    }
+    try { localStorage.setItem('mahaniWorkerUrl', base); } catch (_) {}
+    serviceStatus.textContent = 'جارٍ الاتصال بخدمة البناء...';
+    try {
+      const response = await fetch(base + '/api/config', { method: 'GET' });
+      const config = await response.json();
+      if (!response.ok || !config.success || !config.siteKey) throw new Error(config.error || 'تعذر قراءة إعدادات الخدمة.');
+      await loadTurnstileScript();
+      widgetId = window.turnstile.render(turnstileWidget, {
+        sitekey: config.siteKey,
+        theme: 'dark',
+        callback: () => { serviceStatus.textContent = 'الخدمة جاهزة. أكمل بيانات التطبيق ثم ابدأ البناء.'; },
+        'expired-callback': () => { serviceStatus.textContent = 'انتهت صلاحية التحقق؛ أعد التحقق قبل الإنشاء.'; },
+        'error-callback': () => { serviceStatus.textContent = 'فشل التحقق الأمني؛ تحقق من إعدادات Turnstile.'; }
+      });
+      configLoadedFor = base;
+      serviceStatus.textContent = 'تم الاتصال بالخدمة. أكمل التحقق الأمني قبل الإنشاء.';
+    } catch (error) {
+      serviceStatus.textContent = error.message || 'تعذر الاتصال بالخدمة. تحقق من الرابط وإعدادات CORS.';
+    }
+  }
+
+  apiInput.addEventListener('change', configureWorker);
+  apiInput.addEventListener('blur', () => {
+    if (apiBase() !== configLoadedFor) configureWorker();
+  });
+  if (apiBase()) configureWorker();
+
+  async function fetchStatus(base, requestId) {
+    const response = await fetch(base + '/api/status?requestId=' + encodeURIComponent(requestId), { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok || !data.success) throw new Error(data.error || 'تعذر جلب حالة البناء.');
+    return data;
+  }
+
   form.addEventListener('submit', async function (event) {
     event.preventDefault();
     if (button.disabled) return;
+
+    const base = apiBase();
+    if (!base || configLoadedFor !== base || !window.turnstile || widgetId === null) {
+      result.textContent = 'أدخل رابط Cloudflare Worker صالحًا وانتظر اكتمال إعداد التحقق الأمني.';
+      return;
+    }
 
     const payload = {
       appName: document.getElementById('appName').value.trim(),
       idea: document.getElementById('idea').value.trim(),
       appType: document.getElementById('appType').value,
-      design: document.getElementById('design').value.trim()
+      design: document.getElementById('design').value.trim(),
+      turnstileToken: window.turnstile.getResponse(widgetId)
     };
-
     if (!payload.appName || !payload.idea) {
       result.textContent = 'يرجى إدخال اسم التطبيق وفكرته.';
       return;
     }
+    if (!payload.turnstileToken) {
+      result.textContent = 'أكمل التحقق الأمني أولًا.';
+      return;
+    }
 
     button.disabled = true;
-    button.textContent = '⏳ جارٍ إنشاء المشروع والبناء السحابي...';
-    result.textContent = 'بدأت العملية. يجري توليد الملفات، ثم رفع المشروع إلى GitHub وتشغيل بناء APK سحابيًا. قد تستغرق العملية عدة دقائق.';
-
+    button.textContent = '⏳ جارٍ إرسال الطلب...';
+    result.textContent = 'يجري إرسال طلبك إلى GitHub Actions. سيُنشأ المشروع ويُبنى APK على خوادم GitHub المجانية ضمن حدود الاستخدام.';
     try {
-      const response = await fetch('/api/analyze', {
+      const response = await fetch(base + '/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+      const started = await response.json();
+      if (!response.ok || !started.success || !started.requestId) throw new Error(started.error || 'تعذر بدء البناء السحابي.');
 
-      let data;
-      try {
-        data = await response.json();
-      } catch (_) {
-        throw new Error('استجابة الخادم ليست JSON صالحًا. تحقق من نشر خدمة الخادم وسجلاتها.');
-      }
-
-      if (!response.ok || !data || data.success !== true) {
-        const message = data && (data.details || data.error);
-        throw new Error(message || 'فشل إنشاء التطبيق.');
+      let status = null;
+      for (let attempt = 0; attempt < 240; attempt++) {
+        button.textContent = '⏳ البناء السحابي: ' + Math.min(99, Math.round((attempt + 1) / 240 * 100)) + '%';
+        await new Promise(resolve => setTimeout(resolve, 8000));
+        status = await fetchStatus(base, started.requestId);
+        result.textContent = status.message || 'يجري بناء التطبيق...';
+        if (status.status === 'completed') break;
       }
 
       const card = document.createElement('div');
-      card.className = 'result-card';
-
+      card.className = status && status.conclusion === 'success' ? 'result-card' : 'error-card';
       const heading = document.createElement('h3');
-      heading.textContent = '✅ اكتمل إنشاء التطبيق';
+      heading.textContent = status && status.conclusion === 'success' ? '✅ اكتمل البناء السحابي' : 'نتيجة عملية البناء';
       card.appendChild(heading);
-
-      const summary = document.createElement('p');
-      summary.textContent = 'اسم التطبيق: ' + (data.project && data.project.name ? data.project.name : payload.appName);
-      card.appendChild(summary);
-
-      const status = document.createElement('p');
-      status.textContent = 'حجم APK: ' + (data.github && Number.isFinite(Number(data.github.apkSize)) ? (Number(data.github.apkSize) / (1024 * 1024)).toFixed(2) + ' MB' : 'تم إكمال عملية البناء');
-      card.appendChild(status);
-
+      const message = document.createElement('p');
+      message.textContent = status && status.message ? status.message : 'لم تصل نتيجة نهائية خلال فترة الانتظار. يمكنك متابعة التشغيل من GitHub.';
+      card.appendChild(message);
       const actions = document.createElement('div');
       actions.className = 'actions';
-      const apkUrl = data.apkUrl || (data.project && data.project.folder
-        ? '/api/project/' + encodeURIComponent(data.project.folder) + '/apk'
-        : '');
-      addLink(actions, apkUrl, '📱 تحميل APK', true);
-      addLink(actions, data.workflowUrl || (data.github && data.github.workflowUrl), '🔧 مشاهدة بناء GitHub Actions', false);
-      addLink(actions, data.github && data.github.repository && data.github.repository.url, '📁 مستودع التطبيق', false);
+      addLink(actions, status && status.artifactUrl, '📦 فتح نتيجة البناء وتنزيل APK', true);
+      addLink(actions, status && status.runUrl, '🔧 سجلات GitHub Actions', false);
       card.appendChild(actions);
-
-      if (data.runId || (data.github && data.github.runId)) {
-        const run = document.createElement('p');
-        run.className = 'muted';
-        run.textContent = 'Workflow Run ID: ' + (data.runId || data.github.runId);
-        card.appendChild(run);
-      }
-
       result.replaceChildren(card);
     } catch (error) {
       const errorCard = document.createElement('div');
@@ -168,6 +240,9 @@ button:disabled{opacity:.65;cursor:wait}
     } finally {
       button.disabled = false;
       button.textContent = originalButtonText;
+      if (window.turnstile && widgetId !== null) {
+        try { window.turnstile.reset(widgetId); } catch (_) {}
+      }
     }
   });
 })();
